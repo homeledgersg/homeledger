@@ -57,20 +57,18 @@ function pickTarget(el,rate){
   if(inp)inp.value=rate;
 }
 
-function pickChannel(id,el){
-  document.getElementById('chWA').classList.remove('on');
-  document.getElementById('chEmail').classList.remove('on');
-  el.classList.add('on');
-  alertChannel=id;
-  var lbl=document.getElementById('alertContactLabel');
-  var inp=document.getElementById('alertContact');
-  if(id==='chWA'){
-    if(lbl)lbl.textContent='WhatsApp number *';
-    if(inp)inp.placeholder='+65 9XXX XXXX';
-  } else {
-    if(lbl)lbl.textContent='Email address *';
-    if(inp)inp.placeholder='you@email.com';
-  }
+function pickChannel(id, el) {
+  // Always show WhatsApp as selected
+  var waBtn = document.getElementById('chWA')
+  if (waBtn) waBtn.classList.add('on')
+
+  var lbl = document.getElementById('alertContactLabel')
+  var inp = document.getElementById('alertContact')
+  if (lbl) lbl.textContent = 'WhatsApp number'
+  if (inp) inp.placeholder = '65 9XXX XXXX'
+
+  // Channel is always WhatsApp
+  alertChannel = 'chWA'
 }
 
 // Sync custom rate input back to selected target button
@@ -119,7 +117,7 @@ function submitAlert(){
 
   var ltypeLabels={floating:'SORA Floating',fixed2:'2-Year Fixed',fixed3:'3-Year Fixed',any:'Any type'};
   var ltypeLabel=ltypeLabels[ltype]||ltype;
-  var chLabel=alertChannel==='chWA'?'WhatsApp':'Email';
+  var chLabel = 'WhatsApp';
   var firstName=name.trim().split(' ')[0];
 
   // Disable button and show loading state
@@ -127,14 +125,14 @@ function submitAlert(){
   if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='Sending...';}
 
   // POST to Formspree
-  var payload={
-    'Form Type': 'Rate Drop Alert',
-    'Name': name,
-    'Contact ('+chLabel+')': contact,
-    'Target Rate': rate+'% p.a.',
-    'Loan Type': ltypeLabel,
-    'Notify Via': chLabel,
-    '_subject': 'New Rate Alert: '+name+' wants '+rate+'%'
+  var payload = {
+  "Form Type": "Rate Drop Alert",
+  "Name": name,
+  "WhatsApp Contact": contact,
+  "Target Rate": rate + "% p.a.",
+  "Loan Type": ltypeLabel,
+  "Notify Via": chLabel,
+  "subject": "New Rate Alert - " + name + " wants rate " + rate + "%"
   };
 
   fetch('https://formspree.io/f/meewjkqd',{
@@ -968,9 +966,6 @@ footer a:hover{color:#fff}
         <div class="alert-channel">
           <button class="alert-ch on" id="chWA" onclick="pickChannel('chWA',this)">
             <span class="alert-ch-icon">&#128172;</span> WhatsApp
-          </button>
-          <button class="alert-ch" id="chEmail" onclick="pickChannel('chEmail',this)">
-            <span class="alert-ch-icon">&#128140;</span> Email
           </button>
         </div>
 
