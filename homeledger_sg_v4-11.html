@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HomeLedger — Singapore Mortgage Comparison</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js">
+// ── RATE TICKER ──
+(function(){
+  var items=[
+    {badge:'BEST FLOAT',rate:'1.28%',bank:'DBS',note:'SORA+0.75%',cls:'lo',live:true},
+    {badge:'BEST FIXED 2YR',rate:'2.65%',bank:'DBS',note:'2-yr fixed',cls:'fi',live:false},
+    {label:'OCBC FLOAT',rate:'1.31%',bank:'OCBC',note:'SORA+0.78%',cls:'',live:false},
+    {label:'UOB FLOAT',rate:'1.33%',bank:'UOB',note:'SORA+0.80%',cls:'',live:false},
+    {label:'HSBC FLOAT',rate:'1.38%',bank:'HSBC',note:'SORA+0.85%',cls:'',live:false},
+    {label:'SCB FLOAT',rate:'1.41%',bank:'SCB',note:'SORA+0.88%',cls:'',live:false},
+    {label:'3M SORA',rate:'0.53%',bank:'MAS',note:'Jun 2026',cls:'',live:false},
+    {badge:'UOB FIXED 2YR',rate:'2.70%',bank:'UOB',note:'2-yr fixed',cls:'fi',live:false},
+    {label:'OCBC FIXED',rate:'2.75%',bank:'OCBC',note:'2-yr fixed',cls:'',live:false},
+    {label:'HDB CONC.',rate:'2.60%',bank:'HDB',note:'No lock-in',cls:'',live:false},
+  ];
+  function makeItem(d){
+    var el=document.createElement('div');
+    el.className='tick-item';
+    var h='';
+    if(d.live)h+='<span class="tick-live"></span>';
+    if(d.badge)h+='<span class="tick-badge '+(d.cls||'')+'">'+d.badge+'</span>';
+    if(d.label)h+='<span class="tick-label">'+d.label+'</span>';
+    h+='<span class="tick-rate">'+d.rate+'</span>';
+    h+='<span class="tick-bank">'+d.bank+' &middot; '+d.note+'</span>';
+    el.innerHTML=h;
+    return el;
+  }
+  var track=document.getElementById('tickerTrack');
+  if(!track)return;
+  // double the items for seamless loop
+  items.forEach(function(d){track.appendChild(makeItem(d));});
+  items.forEach(function(d){track.appendChild(makeItem(d));});
+  // Set animation duration based on content width after render
+  setTimeout(function(){
+    var fullW=track.scrollWidth/2;
+    var speed=fullW/80; // px per second
+    track.style.animationDuration=speed+'s';
+  },100);
+})();
+
+// ── RATE DROP ALERT ──
+var alertChannel='chWA';
+var alertTargetRate='1.10';
+
+function pickTarget(el,rate){
+  document.querySelectorAll('.alert-t').forEach(function(t){t.classList.remove('on');});
+  el.classList.add('on');
+  alertTargetRate=rate;
+  var inp=document.getElementById('alertRate');
+  if(inp)inp.value=rate;
+}
+
+function pickChannel(id,el){
+  document.getElementById('chWA').classList.remove('on');
+  document.getElementById('chEmail').classList.remove('on');
+  el.classList.add('on');
+  alertChannel=id;
+  var lbl=document.getElementById('alertContactLabel');
+  var inp=document.getElementById('alertContact');
+  if(id==='chWA'){
+    if(lbl)lbl.textContent='WhatsApp number *';
+    if(inp)inp.placeholder='+65 9XXX XXXX';
+  } else {
+    if(lbl)lbl.textContent='Email address *';
+    if(inp)inp.placeholder='you@email.com';
+  }
+}
+
+// Sync custom rate input back to selected target button
+(function(){
+  var rInp=document.getElementById('alertRate');
+  if(rInp){
+    rInp.addEventListener('input',function(){
+      alertTargetRate=this.value;
+      document.querySelectorAll('.alert-t').forEach(function(t){
+        t.classList.toggle('on',t.querySelector('.alert-t-rate').textContent===alertTargetRate+'%');
+      });
+    });
+  }
+})();
+
+function submitAlert(){
+  var name=(document.getElementById('alertName')||{}).value||'';
+  var contact=(document.getElementById('alertContact')||{}).value||'';
+  var rate=(document.getElementById('alertRate')||{}).value||alertTargetRate;
+  var ltype=(document.getElementById('alertLoanType')||{}).value||'any';
+  var valid=true;
+
+  var nEl=document.getElementById('alertName');
+  var nErr=document.getElementById('alertNameErr');
+  if(!name.trim()){
+    if(nEl)nEl.classList.add('a-err');
+    if(nErr)nErr.style.display='block';
+    valid=false;
+  } else {
+    if(nEl)nEl.classList.remove('a-err');
+    if(nErr)nErr.style.display='none';
+  }
+
+  var cEl=document.getElementById('alertContact');
+  var cErr=document.getElementById('alertContactErr');
+  if(!contact.trim()||contact.trim().length<5){
+    if(cEl)cEl.classList.add('a-err');
+    if(cErr)cErr.style.display='block';
+    valid=false;
+  } else {
+    if(cEl)cEl.classList.remove('a-err');
+    if(cErr)cErr.style.display='none';
+  }
+
+  if(!valid)return;
+
+  var ltypeLabels={floating:'SORA Floating',fixed2:'2-Year Fixed',fixed3:'3-Year Fixed',any:'Any type'};
+  var ltypeLabel=ltypeLabels[ltype]||ltype;
+  var chLabel=alertChannel==='chWA'?'WhatsApp':'Email';
+  var firstName=name.trim().split(' ')[0];
+
+  // Disable button and show loading state
+  var submitBtn=document.querySelector('.alert-submit');
+  if(submitBtn){submitBtn.disabled=true;submitBtn.textContent='Sending...';}
+
+  // POST to Formspree
+  var payload={
+    'Form Type': 'Rate Drop Alert',
+    'Name': name,
+    'Contact ('+chLabel+')': contact,
+    'Target Rate': rate+'% p.a.',
+    'Loan Type': ltypeLabel,
+    'Notify Via': chLabel,
+    '_subject': 'New Rate Alert: '+name+' wants '+rate+'%'
+  };
+
+  fetch('https://formspree.io/f/meewjkqd',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify(payload)
+  })
+  .then(function(res){
+    if(res.ok){
+      // Show success
+      document.getElementById('alertForm').style.display='none';
+      document.getElementById('alertSuccess').style.display='block';
+      var summary=document.getElementById('alertSummary');
+      if(summary){
+        summary.innerHTML='<strong>Name:</strong> '+name+'<br>'
+          +'<strong>Target rate:</strong> '+rate+'% p.a. ('+ltypeLabel+')<br>'
+          +'<strong>Notify via:</strong> '+chLabel+' &mdash; '+contact+'<br>'
+          +'<strong>Status:</strong> <span style="color:var(--go);font-weight:600">&#10003; Active &mdash; monitoring daily</span>';
+      }
+      var waText=encodeURIComponent('Hi HomeLedger! My name is '+name+'. I just set a rate alert for '+rate+'% p.a. ('+ltypeLabel+'). Please contact me at '+contact+'. Thank you!');
+      var waBtn=document.getElementById('alertWaBtn');
+      if(waBtn){
+        if(alertChannel==='chWA'){
+          waBtn.style.display='inline-flex';
+          waBtn.addEventListener('click',function(){window.open('https://wa.me/6589961781?text='+waText,'_blank');});
+        } else {
+          waBtn.style.display='none';
+        }
+      }
+    } else {
+      if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Set my rate alert';}
+      alert('Something went wrong. Please try again or contact us on WhatsApp.');
+    }
+  })
+  .catch(function(){
+    if(submitBtn){submitBtn.disabled=false;submitBtn.textContent='Set my rate alert';}
+    alert('Connection error. Please try again or contact us on WhatsApp.');
+  });
+}
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --p:#0B3D2E;--pl:#1a5c45;--a:#00C896;--ad:#e6faf5;
+  --tx:#111827;--tm:#6b7280;--bg:#f7f8f5;--card:#fff;
+  --bd:#e5e7eb;--go:#059669;--wa:#d97706;--er:#dc2626;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.05);
+  --shadow-md:0 4px 16px rgba(0,0,0,.09),0 2px 4px rgba(0,0,0,.05);
+  --r:12px;--r-lg:16px;--r-xl:20px;
+}
+html{-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--tx);font-family:'DM Sans',sans-serif;line-height:1.6;font-size:16px}
+
+/* NAV */
+nav{background:var(--p);height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 1.75rem;position:sticky;top:0;z-index:200;box-shadow:0 2px 20px rgba(0,0,0,.18)}
+.logo{font-family:'DM Serif Display',serif;color:#fff;font-size:1.45rem;letter-spacing:-.3px}
+.logo b{color:var(--a);font-weight:400}
+.nav-r{display:flex;align-items:center;gap:1.25rem}
+.nav-links{display:flex;gap:1.5rem}
+.nav-links a{color:rgba(255,255,255,.7);font-size:.875rem;cursor:pointer;text-decoration:none;transition:color .15s;font-weight:500}
+.nav-links a:hover{color:#fff}
+.nav-pill{background:var(--a);color:var(--p);border:none;padding:.45rem 1.1rem;border-radius:99px;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;box-shadow:0 2px 8px rgba(0,200,150,.35)}
+.nav-pill:hover{background:#00e0aa}
+.nav-ham{display:none;flex-direction:column;gap:4px;background:none;border:none;cursor:pointer;padding:4px}
+.nav-ham span{display:block;width:22px;height:2px;background:rgba(255,255,255,.8);border-radius:2px}
+.mob-menu{display:none;position:absolute;top:58px;left:0;right:0;background:var(--p);border-top:1px solid rgba(255,255,255,.1);padding:1rem 1.5rem 1.25rem;flex-direction:column;gap:.625rem;z-index:199}
+.mob-menu.open{display:flex}
+.mob-menu a{color:rgba(255,255,255,.8);font-size:1rem;cursor:pointer;text-decoration:none;padding:.5rem 0;border-bottom:1px solid rgba(255,255,255,.08);font-weight:500}
+.mob-menu .nav-pill{margin-top:.5rem;width:100%;text-align:center;padding:.75rem}
+
+/* HERO */
+.hero{background:var(--p);padding:3rem 1.75rem 0;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 70% 50%,rgba(0,200,150,.08) 0%,transparent 70%);pointer-events:none}
+.hero-inner{max-width:880px;margin:0 auto;display:grid;grid-template-columns:1.1fr .9fr;gap:2.5rem;align-items:end}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(0,200,150,.12);color:var(--a);font-size:.75rem;font-weight:600;padding:5px 12px;border-radius:99px;border:1px solid rgba(0,200,150,.25);margin-bottom:1.125rem}
+.hero h1{font-family:'DM Serif Display',serif;font-size:2.6rem;color:#fff;line-height:1.12;margin-bottom:.75rem;letter-spacing:-.5px}
+.hero h1 i{font-style:italic;color:var(--a)}
+.hero-sub{color:rgba(255,255,255,.65);font-size:1rem;margin-bottom:1.5rem;max-width:380px;line-height:1.65}
+.hero-ctas{display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:2rem}
+.btn-primary{background:var(--a);color:var(--p);border:none;padding:.7rem 1.5rem;border-radius:var(--r);font-weight:700;font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;box-shadow:0 2px 8px rgba(0,200,150,.3)}
+.btn-primary:hover{background:#00e0aa;transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:#fff;border:1.5px solid rgba(255,255,255,.3);padding:.7rem 1.5rem;border-radius:var(--r);font-size:.95rem;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;font-weight:500}
+.btn-ghost:hover{border-color:rgba(255,255,255,.6);background:rgba(255,255,255,.06)}
+.hero-right{display:flex;flex-direction:column;gap:10px;align-self:end}
+.hero-stat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px}
+.hstat{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:var(--r);padding:.875rem 1.125rem}
+.hstat-n{font-size:1.5rem;font-weight:700;color:#fff;line-height:1.1}
+.hstat-l{font-size:.75rem;color:rgba(255,255,255,.5);margin-top:3px;font-weight:500}
+.sora-chip{background:rgba(0,200,150,.08);border:1px solid rgba(0,200,150,.2);border-radius:var(--r);padding:.875rem 1.125rem;display:flex;justify-content:space-between;align-items:center}
+.sora-chip-l{font-size:.75rem;color:rgba(255,255,255,.6);font-weight:500}
+.sora-chip-meta{font-size:.68rem;color:rgba(255,255,255,.35);margin-top:2px}
+.sora-chip-r{font-size:1.35rem;font-weight:700;color:#fff;display:flex;align-items:baseline;gap:6px}
+.sora-chip-tag{font-size:.65rem;color:var(--a);font-weight:600;border:1px solid rgba(0,200,150,.3);padding:2px 7px;border-radius:4px}
+.hero-wave{height:28px;background:var(--bg);border-radius:28px 28px 0 0;margin-top:0}
+
+/* TRUST */
+.trust{display:flex;flex-wrap:wrap;gap:.5rem 2rem;align-items:center;justify-content:center;padding:1.125rem 1.75rem;background:var(--card);border-bottom:1px solid var(--bd);box-shadow:var(--shadow-sm)}
+.t-item{display:flex;align-items:center;gap:7px;font-size:.82rem;color:var(--tm);font-weight:500}
+.t-dot{width:6px;height:6px;border-radius:50%;background:var(--a);flex-shrink:0}
+
+/* SECTION */
+.sec{padding:2.5rem 1.75rem;max-width:880px;margin:0 auto}
+.sec-eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--a);margin-bottom:.4rem}
+.sec-h{font-family:'DM Serif Display',serif;font-size:1.85rem;color:var(--tx);margin-bottom:.375rem;letter-spacing:-.2px;line-height:1.2}
+.sec-sub{color:var(--tm);font-size:.95rem;margin-bottom:1.5rem;line-height:1.6;max-width:540px}
+
+/* RATE TABLE */
+.tabs{display:flex;gap:3px;background:var(--bd);padding:3px;border-radius:var(--r);width:fit-content;margin-bottom:1.25rem}
+.tb{padding:.4rem 1rem;border:none;background:transparent;border-radius:calc(var(--r) - 3px);font-size:.85rem;cursor:pointer;font-family:'DM Sans',sans-serif;color:var(--tm);font-weight:500;transition:all .18s}
+.tb.on{background:#fff;color:var(--p);box-shadow:var(--shadow-sm);font-weight:600}
+.rate-tbl{width:100%;border-collapse:collapse;font-size:.875rem}
+.rate-tbl thead tr{background:var(--p)}
+.rate-tbl thead th{color:rgba(255,255,255,.75);font-weight:600;padding:.75rem 1.125rem;text-align:left;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}
+.rate-tbl tbody tr{border-bottom:1px solid var(--bd);transition:background .12s}
+.rate-tbl tbody tr:last-child{border-bottom:none}
+.rate-tbl tbody tr:hover{background:#f0faf6}
+.rate-tbl tbody td{padding:.75rem 1.125rem;vertical-align:middle}
+.bk-cell{display:flex;align-items:center;gap:10px}
+.bk-ico{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;color:#fff;flex-shrink:0}
+.bk-n{font-weight:600;font-size:.875rem;color:var(--tx)}
+.bk-p{font-size:.75rem;color:var(--tm);margin-top:1px}
+.rv{font-weight:700;font-size:.95rem}
+.rv-lo{color:var(--go)}
+.rv-mi{color:var(--wa)}
+.type-s{font-size:.7rem;background:#eff6ff;color:#1d4ed8;padding:3px 8px;border-radius:99px;font-weight:600}
+.type-f{font-size:.7rem;background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:99px;font-weight:600}
+.best-pill{background:var(--ad);color:#065f46;font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:99px;border:1px solid rgba(5,150,105,.2)}
+.tbl-note{padding:.625rem 1.125rem;background:#f9fafb;border-top:1px solid var(--bd);font-size:.75rem;color:var(--tm);border-radius:0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px)}
+
+/* CALC */
+.calc-zone{background:var(--p);padding:2.5rem 0;position:relative}
+.calc-zone::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 60% 80% at 80% 20%,rgba(0,200,150,.07) 0%,transparent 70%);pointer-events:none}
+.calc-zone .sec-eyebrow{color:rgba(0,200,150,.85)}
+.calc-zone .sec-h{color:#fff;font-size:2rem}
+.calc-zone .sec-sub{color:rgba(255,255,255,.5);margin-bottom:1.25rem}
+.calc-tabs{display:flex;gap:3px;background:rgba(255,255,255,.1);padding:3px;border-radius:var(--r);width:fit-content;margin-bottom:1.5rem;flex-wrap:wrap}
+.ct{padding:.4rem 1rem;border:none;background:transparent;border-radius:calc(var(--r) - 3px);font-size:.85rem;cursor:pointer;font-family:'DM Sans',sans-serif;color:rgba(255,255,255,.55);font-weight:500;transition:all .18s}
+.ct.on{background:rgba(255,255,255,.18);color:#fff;font-weight:600}
+.calc-panel{display:none}
+.calc-panel.active{display:block}
+.inp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:1.5rem}
+.inp-f{display:flex;flex-direction:column;gap:5px}
+.inp-f label{font-size:.78rem;color:rgba(255,255,255,.6);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.inp-f input,.inp-f select{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:var(--r);padding:.65rem 1rem;font-size:.95rem;font-family:'DM Sans',sans-serif;color:#fff;width:100%;transition:border-color .18s,background .18s}
+.inp-f input::placeholder{color:rgba(255,255,255,.35)}
+.inp-f input:focus,.inp-f select:focus{outline:none;border-color:var(--a);background:rgba(255,255,255,.12)}
+.inp-f select option{background:var(--p);color:#fff}
+.inp-err{font-size:.72rem;color:#fca5a5;display:none}
+.inp-f.has-err .inp-err{display:block}
+.inp-f.has-err input{border-color:#f87171}
+.results-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:1.5rem}
+.rs{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:var(--r);padding:.9rem 1.125rem}
+.rs .rl{font-size:.72rem;color:rgba(255,255,255,.5);margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.rs .rv2{font-size:1.15rem;font-weight:700;color:#fff}
+.rs .rs2{font-size:.7rem;color:rgba(255,255,255,.35);margin-top:3px}
+.rs.hi .rv2{color:var(--a)}
+.rs.warn .rv2{color:#fbbf24}
+.rs.danger .rv2{color:#f87171}
+.prog-bar{height:10px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden;margin-bottom:.5rem}
+.prog-fill{height:100%;border-radius:99px;transition:width .5s ease,background .5s}
+.prog-label{font-size:.85rem;font-weight:600;margin-top:.375rem}
+.breakdown{border:1px solid rgba(255,255,255,.12);border-radius:var(--r-lg);overflow:hidden;margin-bottom:1.125rem}
+.br-row{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1.125rem;gap:10px;border-bottom:1px solid rgba(255,255,255,.08)}
+.br-row:last-child{border-bottom:none;background:rgba(255,255,255,.05)}
+.br-l{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.br-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.br-name{font-size:.875rem;color:rgba(255,255,255,.9);font-weight:500}
+.br-hint{font-size:.72rem;color:rgba(255,255,255,.4);margin-top:2px}
+.br-r{text-align:right}
+.br-amt{font-size:.875rem;font-weight:600;color:#fff}
+.br-pct{font-size:.7rem;color:rgba(255,255,255,.4);margin-top:1px}
+.br-seg-bar{height:10px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden;display:flex;margin-bottom:.875rem}
+.br-seg{height:100%;transition:width .4s}
+.absd-warn{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:var(--r);padding:.75rem 1rem;font-size:.82rem;color:#fde68a;display:flex;gap:8px;align-items:flex-start;margin-bottom:1rem}
+.chart-box{margin-top:1.125rem}
+.chart-box .chart-title{font-size:.8rem;color:rgba(255,255,255,.5);margin-bottom:.75rem;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.chart-leg{display:flex;gap:1.25rem;margin-top:.75rem}
+.chart-leg span{display:flex;align-items:center;gap:6px;font-size:.75rem;color:rgba(255,255,255,.5)}
+.chart-leg span b{width:9px;height:9px;border-radius:3px;display:inline-block;flex-shrink:0}
+.fn{font-size:.75rem;color:rgba(255,255,255,.35);line-height:1.6;padding:.875rem 1rem;background:rgba(255,255,255,.04);border-radius:var(--r);margin-top:1rem}
+.tcv-toggle{display:flex;gap:3px;background:rgba(255,255,255,.1);padding:3px;border-radius:var(--r);width:fit-content;margin-bottom:1.25rem}
+.tcv{padding:4px 13px;border:none;background:transparent;border-radius:calc(var(--r) - 3px);font-size:.78rem;cursor:pointer;font-family:'DM Sans',sans-serif;color:rgba(255,255,255,.55);font-weight:500;transition:all .18s}
+.tcv.on{background:rgba(255,255,255,.18);color:#fff;font-weight:600}
+
+/* WIZARD */
+.alt-bg{background:#eef4ee;padding:.75rem 0}
+.wiz-card{background:var(--card);border-radius:var(--r-xl);border:1px solid var(--bd);overflow:hidden;box-shadow:var(--shadow-md)}
+.wiz-hd{background:var(--p);padding:1.375rem 1.75rem}
+.wiz-hd h3{color:#fff;font-family:'DM Serif Display',serif;font-size:1.3rem}
+.wiz-hd p{color:rgba(255,255,255,.5);font-size:.85rem;margin-top:3px}
+.wiz-prog{display:flex;gap:5px;margin-top:1rem}
+.wp{flex:1;height:3px;background:rgba(255,255,255,.15);border-radius:99px;transition:background .25s}
+.wp.d{background:var(--a)}
+.wp.a{background:rgba(0,200,150,.5)}
+.wiz-body{padding:1.5rem 1.75rem}
+.wiz-q{font-weight:600;font-size:1rem;margin-bottom:1rem;color:var(--tx);line-height:1.4}
+.wiz-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.wo{border:1.5px solid var(--bd);border-radius:var(--r-lg);padding:.75rem 1rem;cursor:pointer;display:flex;align-items:center;gap:10px;background:var(--card);font-family:'DM Sans',sans-serif;text-align:left;transition:all .18s;width:100%}
+.wo:hover,.wo.s{border-color:var(--a);background:var(--ad);box-shadow:0 0 0 3px rgba(0,200,150,.1)}
+.wo-e{font-size:1.125rem;flex-shrink:0}
+.wo-l{font-weight:600;font-size:.875rem;color:var(--tx);display:block}
+.wo-s{font-size:.75rem;color:var(--tm);margin-top:2px;display:block}
+.wiz-ir{display:flex;flex-direction:column;gap:5px;margin-bottom:1rem}
+.wiz-ir label{font-size:.82rem;color:var(--tm);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.wiz-ir input,.wiz-ir select{border:1.5px solid var(--bd);border-radius:var(--r);padding:.65rem 1rem;font-size:.95rem;font-family:'DM Sans',sans-serif;width:100%;color:var(--tx);background:var(--card);transition:border-color .18s}
+.wiz-ir input:focus,.wiz-ir select:focus{outline:none;border-color:var(--a);box-shadow:0 0 0 3px rgba(0,200,150,.1)}
+.wiz-ir input.err{border-color:var(--er)}
+.wiz-err{font-size:.75rem;color:var(--er);margin-top:3px}
+.wiz-nav{display:flex;justify-content:space-between;margin-top:1.375rem;align-items:center}
+.w-back{background:none;border:1.5px solid var(--bd);color:var(--tm);padding:.5rem 1.125rem;border-radius:var(--r);cursor:pointer;font-size:.875rem;font-family:'DM Sans',sans-serif;transition:all .15s;font-weight:500}
+.w-next{background:var(--p);color:#fff;border:none;padding:.5rem 1.25rem;border-radius:var(--r);cursor:pointer;font-size:.875rem;font-weight:600;font-family:'DM Sans',sans-serif;transition:all .15s}
+.w-next:hover{background:var(--pl);box-shadow:0 4px 12px rgba(11,61,46,.3)}
+.w-sl{font-size:.78rem;color:var(--tm);font-weight:500}
+.wiz-ok{text-align:center;padding:1rem 0}
+.wiz-ok-ic{font-size:2.75rem;margin-bottom:.75rem}
+.wiz-ok h4{font-family:'DM Serif Display',serif;font-size:1.3rem;margin-bottom:.375rem;color:var(--tx)}
+.wiz-ok p{color:var(--tm);font-size:.9rem;line-height:1.6}
+.wa-btn{display:inline-flex;align-items:center;gap:8px;background:#25D366;color:#fff;padding:.625rem 1.375rem;border-radius:var(--r);font-weight:700;font-size:.875rem;margin-top:1rem;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;box-shadow:0 4px 14px rgba(37,211,102,.35);transition:all .15s}
+.wa-btn:hover{background:#1ebe5d;transform:translateY(-1px)}
+.pdpa{font-size:.75rem;color:var(--tm);margin-top:.875rem;padding:.75rem 1rem;background:var(--bg);border-radius:var(--r);border:1px solid var(--bd);line-height:1.6}
+.pdpa a{color:var(--p);text-decoration:underline}
+
+/* REVIEWS */
+.rev-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.rev-card{background:var(--card);border:1px solid var(--bd);border-radius:var(--r-lg);padding:1.125rem 1.25rem;transition:box-shadow .18s}
+.rev-card:hover{box-shadow:var(--shadow-md)}
+.rev-top{display:flex;align-items:center;gap:10px;margin-bottom:.75rem}
+.rev-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.875rem;color:#fff;flex-shrink:0}
+.rev-name{font-weight:600;font-size:.9rem;color:var(--tx)}
+.rev-meta{font-size:.75rem;color:var(--tm);margin-top:1px}
+.rev-stars{color:#f59e0b;font-size:.85rem;margin-bottom:.5rem;letter-spacing:2px}
+.rev-txt{font-size:.875rem;color:var(--tm);line-height:1.6;font-style:italic}
+.rev-tag{display:inline-block;margin-top:.625rem;font-size:.72rem;background:var(--ad);color:#065f46;padding:3px 10px;border-radius:99px;font-weight:600;border:1px solid rgba(5,150,105,.15)}
+.rating-bar{display:flex;align-items:center;gap:1.25rem;margin-bottom:2rem;flex-wrap:wrap}
+.big-rating{font-family:'DM Serif Display',serif;font-size:3.5rem;color:var(--tx);line-height:1}
+.rating-detail{flex:1;min-width:200px}
+.rating-row{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.r-stars{font-size:.75rem;color:var(--tm);min-width:32px;font-weight:500}
+.r-track{flex:1;height:7px;background:var(--bd);border-radius:99px;overflow:hidden}
+.r-fill{height:100%;background:#f59e0b;border-radius:99px}
+.r-count{font-size:.75rem;color:var(--tm);min-width:28px;font-weight:500}
+
+/* FAQ */
+.faq-wrap{background:var(--card);border:1px solid var(--bd);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--shadow-sm)}
+.faq-item{border-bottom:1px solid var(--bd);transition:background .15s}
+.faq-item:last-child{border-bottom:none}
+.faq-item:hover{background:#f9fafb}
+.faq-q{padding:1.125rem 1.375rem;font-weight:600;font-size:.95rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;cursor:pointer;user-select:none;color:var(--tx)}
+.faq-ic{width:26px;height:26px;border-radius:50%;background:var(--bg);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;color:var(--tm);transition:all .22s}
+.faq-item.open .faq-ic{background:var(--p);border-color:var(--p);color:#fff;transform:rotate(180deg)}
+.faq-a{display:none;padding:0 1.375rem 1.125rem;font-size:.9rem;color:var(--tm);line-height:1.7}
+.faq-item.open .faq-a{display:block}
+.faq-item.open .faq-q{color:var(--p)}
+
+/* FOOTER / WA BAR */
+.wa-float-bar{background:var(--p);padding:.875rem 1.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem}
+.wa-float-bar-text{font-size:.875rem;color:rgba(255,255,255,.7);font-weight:500}
+.wa-float-bar-text strong{color:#fff;font-weight:700}
+.wa-fb{width:50px;height:50px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;box-shadow:0 4px 14px rgba(37,211,102,.4);transition:all .15s;flex-shrink:0}
+.wa-fb:hover{background:#1ebe5d;transform:scale(1.05)}
+footer{background:var(--p);padding:2rem 1.75rem;text-align:center}
+footer p{color:rgba(255,255,255,.4);font-size:.8rem;line-height:1.7}
+footer a{color:rgba(255,255,255,.6);text-decoration:none}
+footer a:hover{color:#fff}
+
+/* RESPONSIVE — FIX 2: full mobile support */
+@media(max-width:680px){
+  .hero-inner{grid-template-columns:1fr}
+  .hero-right{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .hero-stat-row{display:contents}
+  .sora-chip{grid-column:1/-1}
+  .hero h1{font-size:2rem}
+  .nav-links{display:none}
+  .nav-ham{display:flex}
+  .nav-pill{display:none}
+  .inp-grid{grid-template-columns:1fr 1fr}
+  .results-strip{grid-template-columns:1fr 1fr}
+  .wiz-opts{grid-template-columns:1fr}
+  .rev-grid{grid-template-columns:1fr}
+  .hero-ctas{flex-direction:column}
+  .hero-ctas button{width:100%;text-align:center}
+  .sec-h{font-size:1.55rem}
+  .big-rating{font-size:2.75rem}
+}
+@media(max-width:400px){
+  .inp-grid{grid-template-columns:1fr}
+  .results-strip{grid-template-columns:1fr}
+}
+
+/* RATE TICKER */
+/* HERO RATE TICKER — embedded at bottom of hero, sticky on scroll */
+.hero-ticker-wrap{
+  overflow:hidden;
+  background:rgba(0,0,0,.28);
+  border-top:1px solid rgba(255,255,255,.1);
+  padding:11px 0;
+  margin-top:1.75rem;
+  margin-left:-1.75rem;
+  margin-right:-1.75rem;
+  width:calc(100% + 3.5rem);
+  position:sticky;
+  top:58px;
+  z-index:190;
+  backdrop-filter:blur(4px);
+}
+.hero-ticker-track{
+  display:flex;
+  white-space:nowrap;
+  animation:tickerScroll 38s linear infinite;
+  will-change:transform;
+}
+.hero-ticker-track:hover{animation-play-state:paused}
+@keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.tick-item{
+  display:inline-flex;align-items:center;gap:10px;
+  padding:0 24px;
+  border-right:1px solid rgba(255,255,255,.08);
+  font-size:.78rem;color:rgba(255,255,255,.7);
+  flex-shrink:0;
+}
+.tick-live{width:5px;height:5px;border-radius:50%;background:var(--a);animation:tickBlink 2s ease-in-out infinite;flex-shrink:0}
+@keyframes tickBlink{0%,100%{opacity:1}50%{opacity:.2}}
+.tick-label{font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.35)}
+.tick-rate{font-family:'DM Serif Display',serif;font-size:1.05rem;font-weight:400;color:#fff}
+.tick-bank{font-size:.7rem;color:rgba(255,255,255,.4)}
+.tick-badge{font-size:.62rem;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.04em}
+.tick-badge.lo{background:var(--a);color:#0B3D2E}
+.tick-badge.fi{background:#fbbf24;color:#78350f}
+
+/* RATE ALERT SECTION */
+.alert-section{background:#fff;border-top:3px solid var(--a)}
+.alert-card{background:var(--card);border:1px solid var(--bd);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--shadow-md)}
+.alert-hd{background:linear-gradient(135deg,var(--p) 0%,#1a5c45 100%);padding:1.5rem 1.75rem;display:flex;align-items:center;gap:1rem}
+.alert-hd-icon{width:44px;height:44px;background:rgba(0,200,150,.2);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.25rem;flex-shrink:0}
+.alert-hd h3{font-family:'DM Serif Display',serif;color:#fff;font-size:1.25rem;margin-bottom:2px}
+.alert-hd p{color:rgba(255,255,255,.55);font-size:.82rem}
+.alert-body{padding:1.5rem 1.75rem}
+.alert-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem}
+.alert-f{display:flex;flex-direction:column;gap:5px}
+.alert-f label{font-size:.78rem;font-weight:600;color:var(--tm);text-transform:uppercase;letter-spacing:.04em}
+.alert-f input,.alert-f select{border:1.5px solid var(--bd);border-radius:var(--r);padding:.6rem .9rem;font-size:.95rem;font-family:'DM Sans',sans-serif;color:var(--tx);background:var(--card);width:100%;transition:border-color .18s}
+.alert-f input:focus,.alert-f select:focus{outline:none;border-color:var(--a);box-shadow:0 0 0 3px rgba(0,200,150,.1)}
+.alert-f input.a-err{border-color:var(--er)}
+.alert-err{font-size:.72rem;color:var(--er);margin-top:3px;display:none}
+.alert-targets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:1.25rem}
+.alert-t{border:1.5px solid var(--bd);border-radius:var(--r-lg);padding:.75rem 1rem;cursor:pointer;text-align:center;background:#fafafa;transition:all .18s;font-family:'DM Sans',sans-serif}
+.alert-t:hover,.alert-t.on{border-color:var(--a);background:var(--ad);box-shadow:0 0 0 3px rgba(0,200,150,.08)}
+.alert-t-rate{font-family:'DM Serif Display',serif;font-size:1.25rem;color:var(--p);display:block}
+.alert-t-label{font-size:.7rem;color:var(--tm);font-weight:500;margin-top:3px;display:block}
+.alert-t-hint{font-size:.65rem;color:rgba(5,150,105,.7);font-weight:600;margin-top:2px;display:block}
+.alert-note{font-size:.8rem;color:var(--tm);background:var(--bg);border-radius:var(--r);padding:.75rem 1rem;margin-bottom:1.25rem;border:1px solid var(--bd);line-height:1.55}
+.alert-note strong{color:var(--tx)}
+.alert-channel{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1.25rem}
+.alert-ch{border:1.5px solid var(--bd);border-radius:var(--r);padding:.6rem 1rem;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:.875rem;font-weight:600;color:var(--tm);background:#fafafa;transition:all .18s;font-family:'DM Sans',sans-serif}
+.alert-ch:hover,.alert-ch.on{border-color:var(--a);background:var(--ad);color:var(--p)}
+.alert-ch-icon{font-size:1.1rem}
+.alert-submit{width:100%;background:var(--p);color:#fff;border:none;padding:.8rem 1.5rem;border-radius:var(--r);font-size:.95rem;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:8px}
+.alert-submit:hover{background:var(--pl);box-shadow:0 4px 14px rgba(11,61,46,.25);transform:translateY(-1px)}
+.alert-success{display:none;text-align:center;padding:1.5rem 1rem}
+.alert-success-ic{font-size:2.5rem;margin-bottom:.75rem}
+.alert-success h4{font-family:'DM Serif Display',serif;font-size:1.2rem;color:var(--tx);margin-bottom:.375rem}
+.alert-success p{font-size:.875rem;color:var(--tm);line-height:1.6;max-width:400px;margin:0 auto}
+.alert-success .summary{background:var(--bg);border-radius:var(--r);padding:.875rem 1rem;margin-top:1rem;font-size:.82rem;color:var(--tm);text-align:left;border:1px solid var(--bd)}
+.alert-success .summary strong{color:var(--tx)}
+.wa-alert-btn{display:inline-flex;align-items:center;gap:8px;background:#25D366;color:#fff;padding:.6rem 1.25rem;border-radius:var(--r);font-weight:700;font-size:.85rem;margin-top:.875rem;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;box-shadow:0 4px 12px rgba(37,211,102,.3);transition:all .15s}
+.wa-alert-btn:hover{background:#1ebe5d;transform:translateY(-1px)}
+.current-rate-banner{background:linear-gradient(90deg,rgba(0,200,150,.08) 0%,rgba(0,200,150,.03) 100%);border:1px solid rgba(0,200,150,.2);border-radius:var(--r);padding:.875rem 1.125rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1.5rem}
+.crb-left{}
+.crb-label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--a);margin-bottom:3px}
+.crb-val{font-family:'DM Serif Display',serif;font-size:1.6rem;color:var(--p)}
+.crb-sub{font-size:.72rem;color:var(--tm);margin-top:1px}
+.crb-right{text-align:right}
+.crb-saving{font-size:.8rem;color:var(--go);font-weight:600}
+@media(max-width:600px){
+  .alert-grid{grid-template-columns:1fr}
+  .alert-targets{grid-template-columns:1fr 1fr}
+  .alert-channel{grid-template-columns:1fr}
+}
+
+/* ===== BLOG SECTION ===== */
+.blog-section{background:var(--bg);padding:0}
+.blog-sec{padding:2.5rem 1.75rem;max-width:880px;margin:0 auto}
+.blog-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.5rem}
+.bf{padding:.4rem 1rem;border:1.5px solid var(--bd);border-radius:99px;font-size:.8rem;cursor:pointer;font-family:'DM Sans',sans-serif;color:var(--tm);font-weight:500;transition:all .18s;background:transparent}
+.bf.on{background:var(--p);color:#fff;border-color:var(--p)}
+.blog-featured{background:var(--p);border-radius:var(--r-xl);overflow:hidden;margin-bottom:1.5rem;display:grid;grid-template-columns:1fr 1.1fr;min-height:220px;box-shadow:var(--shadow-md);cursor:pointer;transition:box-shadow .2s}
+.blog-featured:hover{box-shadow:0 8px 32px rgba(0,0,0,.18)}
+.bf-visual{background:var(--pl);display:flex;flex-direction:column;justify-content:flex-end;padding:1.75rem;position:relative;overflow:hidden}
+.bf-visual::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 80% at 30% 50%,rgba(0,200,150,.12) 0,transparent 70%)}
+.bf-num{font-family:'DM Serif Display',serif;font-size:4rem;color:rgba(255,255,255,.12);line-height:1;margin-bottom:.5rem}
+.bf-tag{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--a);margin-bottom:.375rem}
+.bf-text{padding:1.75rem;display:flex;flex-direction:column;justify-content:center}
+.bf-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(0,200,150,.12);color:var(--a);font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:99px;border:1px solid rgba(0,200,150,.25);margin-bottom:.875rem;width:fit-content}
+.bf-title{font-family:'DM Serif Display',serif;font-size:1.5rem;color:#fff;line-height:1.2;margin-bottom:.625rem;letter-spacing:-.2px}
+.bf-desc{color:rgba(255,255,255,.6);font-size:.875rem;line-height:1.6;margin-bottom:1rem}
+.bf-read{display:inline-flex;align-items:center;gap:6px;color:var(--a);font-size:.85rem;font-weight:600;text-decoration:none}
+.bf-read:hover{color:#00e0aa}
+.blog-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-bottom:1.5rem}
+.bc{background:var(--card);border:1px solid var(--bd);border-radius:var(--r-lg);overflow:hidden;transition:box-shadow .18s,transform .18s;cursor:pointer}
+.bc:hover{box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.bc-bar{height:4px}
+.bc-body{padding:1.125rem 1.25rem}
+.bc-cat{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:.5rem}
+.bc-title{font-weight:700;font-size:.95rem;color:var(--tx);line-height:1.35;margin-bottom:.5rem}
+.bc-desc{font-size:.825rem;color:var(--tm);line-height:1.6;margin-bottom:.875rem}
+.bc-foot{display:flex;align-items:center;gap:8px;font-size:.75rem;color:var(--tm)}
+.bc-av{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.65rem;color:#fff;flex-shrink:0}
+.blog-loading{text-align:center;padding:3rem 1rem;color:var(--tm);font-size:.9rem}
+.blog-empty{text-align:center;padding:3rem 1rem}
+.blog-empty p{color:var(--tm);font-size:.9rem;margin-top:.5rem}
+.blog-load-more{display:flex;justify-content:center;margin-top:1rem}
+.blm-btn{border:1.5px solid var(--bd);background:var(--card);color:var(--tx);padding:.6rem 1.5rem;border-radius:var(--r);font-size:.875rem;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .18s}
+.blm-btn:hover{border-color:var(--p);color:var(--p)}
+/* Article reader */
+.article-view{display:none;background:var(--bg)}
+.article-back{display:inline-flex;align-items:center;gap:6px;color:var(--tm);font-size:.85rem;font-weight:500;cursor:pointer;border:none;background:none;padding:0;margin-bottom:1.5rem;transition:color .15s;font-family:'DM Sans',sans-serif}
+.article-back:hover{color:var(--p)}
+.article-cat{font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--a);margin-bottom:.5rem}
+.article-title{font-family:'DM Serif Display',serif;font-size:2rem;color:var(--tx);line-height:1.2;margin-bottom:.75rem;letter-spacing:-.3px}
+.article-meta{font-size:.82rem;color:var(--tm);margin-bottom:2rem;display:flex;gap:.75rem;flex-wrap:wrap;align-items:center}
+.article-body{font-size:1rem;color:var(--tx);line-height:1.8;max-width:65ch}
+.article-body h1,.article-body h2,.article-body h3{font-family:'DM Serif Display',serif;color:var(--tx);margin:1.75rem 0 .75rem;line-height:1.2}
+.article-body h2{font-size:1.4rem}
+.article-body h3{font-size:1.15rem}
+.article-body p{margin-bottom:1.125rem}
+.article-body ul,.article-body ol{margin-bottom:1.125rem;padding-left:1.5rem}
+.article-body li{margin-bottom:.375rem}
+.article-body strong{color:var(--tx);font-weight:600}
+.article-body a{color:var(--p);text-decoration:underline}
+.article-body blockquote{border-left:3px solid var(--a);padding:.75rem 1.25rem;margin:1.25rem 0;background:var(--ad);border-radius:0 var(--r) var(--r) 0;font-style:italic;color:var(--tm)}
+@media(max-width:680px){
+  .blog-featured{grid-template-columns:1fr}
+  .bf-visual{min-height:120px}
+  .blog-grid{grid-template-columns:1fr 1fr}
+  .article-title{font-size:1.5rem}
+}
+@media(max-width:400px){
+  .blog-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">Home<b>Ledger</b></div>
+  <div class="nav-r">
+    <div class="nav-links">
+      <a onclick="go('rates')">Rates</a>
+      <a onclick="go('calculators')">Calculators</a>
+      <a onclick="go('reviews')">Reviews</a>
+      <a onclick="go('blog')">Blog</a><a onclick="go('rateAlert')">Rate Alert</a><a onclick="go('wizard')">Get matched</a>
+    </div>
+    <button class="nav-pill" onclick="go('wizard')">Free consultation</button>
+    <button class="nav-ham" onclick="toggleMob()" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+  <div class="mob-menu" id="mobMenu">
+    <a onclick="go('rates');toggleMob()">Today's Rates</a>
+    <a onclick="go('calculators');toggleMob()">Calculators</a>
+    <a onclick="go('reviews');toggleMob()">Reviews</a>
+    <a onclick="go('blog');toggleMob()">Blog</a><a onclick="go('rateAlert');toggleMob()">Rate Alert &#128276;</a><a onclick="go('wizard');toggleMob()">Get matched</a>
+    <button class="nav-pill" onclick="go('wizard');toggleMob()">Free consultation</button>
+  </div>
+</nav>
+
+<div class="hero" id="top">
+  <div class="hero-inner">
+    <div class="hero-left">
+      <div class="hero-badge">&#10003; MAS-regulated banks only &middot; Independent</div>
+      <h1>Singapore's <i>smartest</i><br>mortgage platform</h1>
+      <p class="hero-sub">Compare live rates from DBS, OCBC, UOB, SCB, HSBC &mdash; and see the true total cost, ABSD, and TDSR before you sign anything.</p>
+      <div class="hero-ctas">
+        <button class="btn-primary" onclick="go('calculators')">Open calculators &rarr;</button>
+        <button class="btn-ghost" onclick="go('wizard')">Get matched free</button>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="hero-stat-row">
+        <div class="hstat"><div class="hstat-n">1.28%</div><div class="hstat-l">Best floating rate today</div></div>
+        <div class="hstat"><div class="hstat-n">5 banks</div><div class="hstat-l">Compared daily</div></div>
+        <div class="hstat"><div class="hstat-n">4.8 &#9733;</div><div class="hstat-l">100+ verified reviews</div></div>
+        <div class="hstat"><div class="hstat-n">Free</div><div class="hstat-l">No obligation</div></div>
+      </div>
+      <div class="sora-chip">
+        <div>
+          <div class="sora-chip-l">3-Month compounded SORA</div>
+          <div class="sora-chip-meta">Published by MAS &middot; Best floating = SORA + bank spread</div>
+        </div>
+        <div class="sora-chip-r">0.53% <span class="sora-chip-tag">live</span></div>
+      </div>
+    </div>
+  </div>
+  <!-- Rate ticker embedded in hero bottom -->
+  <div class="hero-ticker-wrap">
+    <div class="hero-ticker-track" id="tickerTrack"></div>
+  </div>
+  <div class="hero-wave"></div>
+</div>
+
+<div class="trust">
+  <div class="t-item"><div class="t-dot"></div>Independent &middot; not bank-owned</div>
+  <div class="t-item"><div class="t-dot"></div>BSD &amp; ABSD calculated live</div>
+  <div class="t-item"><div class="t-dot"></div>MAS TDSR / MSR compliant</div>
+  <div class="t-item"><div class="t-dot"></div>HDB &amp; private property</div>
+  <div class="t-item"><div class="t-dot"></div>100+ happy homeowners</div>
+</div>
+
+<div class="sec" id="rates">
+  <div class="sec-eyebrow">Live rates &middot; updated daily</div>
+  <div class="sec-h">Today's best packages</div>
+  <div class="sec-sub">Sorted by lowest rate. DBS, OCBC, UOB, SCB, HSBC. 3M SORA = 0.53% as of June 2026. Floating = SORA + bank spread.</div>
+  <div class="tabs">
+    <button class="tb on" onclick="swTab('floating',this)">SORA floating</button>
+    <button class="tb" onclick="swTab('fixed2',this)">2-yr fixed</button>
+    <button class="tb" onclick="swTab('fixed3',this)">3-yr fixed</button>
+  </div>
+  <div style="background:var(--card);border-radius:var(--r-lg);border:1px solid var(--bd);box-shadow:var(--shadow-sm);overflow:hidden">
+    <div style="overflow-x:auto">
+      <table class="rate-tbl"><thead><tr><th>Bank</th><th>Rate</th><th>Type</th><th>Lock-in</th><th></th></tr></thead>
+      <tbody id="rateBody"></tbody></table>
+    </div>
+    <div class="tbl-note">Rates indicative. For loans &ge; S$500k. Actual rates subject to bank credit assessment. Floating = 3M SORA + bank spread.</div>
+  </div>
+</div>
+
+<div class="calc-zone" id="calculators">
+<div class="sec">
+  <div class="sec-eyebrow">Three tools &middot; one place</div>
+  <div class="sec-h">Know your numbers before you commit</div>
+  <div class="sec-sub">True total cost, TDSR eligibility, and repayment comparison. Enter your figures below.</div>
+  <div class="calc-tabs">
+    <button class="ct on" onclick="swCalc('truecost',this)">True cost</button>
+    <button class="ct" onclick="swCalc('tdsr',this)">TDSR eligibility</button>
+    <button class="ct" onclick="swCalc('repayment',this)">Repayment schedule</button>
+  </div>
+
+  <!-- TRUE COST -->
+  <div class="calc-panel active" id="panel_truecost">
+    <div class="inp-grid">
+      <div class="inp-f" id="if_tc_price">
+        <label>Property price (S$)</label>
+        <input class="fmt-amt" type="text" inputmode="numeric" id="tc_price" placeholder="e.g. 1,200,000" data-calc="tc">
+        <div class="inp-err">Enter a valid price (min S$100,000)</div>
+      </div>
+      <div class="inp-f" id="if_tc_loan">
+        <label>Loan amount (S$)</label>
+        <input class="fmt-amt" type="text" inputmode="numeric" id="tc_loan" placeholder="e.g. 900,000" data-calc="tc">
+        <div class="inp-err">Check loan amount</div>
+      </div>
+      <div class="inp-f" id="if_tc_rate">
+        <label>Interest rate (% p.a.)</label>
+        <input type="number" id="tc_rate" placeholder="e.g. 1.28" step="0.01" min="0.1" max="15" oninput="tc()">
+        <div class="inp-err">Enter a rate (0.1%&ndash;15%)</div>
+      </div>
+      <div class="inp-f">
+        <label>Tenure (years)</label>
+        <input type="number" id="tc_tenure" placeholder="e.g. 25" min="1" max="30" oninput="tc()">
+      </div>
+      <div class="inp-f">
+        <label>Buyer profile</label>
+        <select id="tc_profile" onchange="tc()">
+          <option value="sc1">Singapore Citizen &mdash; 1st property</option>
+          <option value="sc2">Singapore Citizen &mdash; 2nd property</option>
+          <option value="sc3">Singapore Citizen &mdash; 3rd+ property</option>
+          <option value="pr1">Permanent Resident &mdash; 1st property</option>
+          <option value="pr2">Permanent Resident &mdash; 2nd+</option>
+          <option value="fg">Foreigner</option>
+        </select>
+      </div>
+      <div class="inp-f">
+        <label>Property type</label>
+        <select id="tc_proptype" onchange="tc()">
+          <option value="hdb">HDB flat</option>
+          <option value="private" selected>Private condo / EC</option>
+          <option value="landed">Landed property</option>
+        </select>
+      </div>
+    </div>
+    <div class="results-strip" id="tc_results"></div>
+    <div class="tcv-toggle">
+      <button class="tcv on" onclick="setV('all',this)">All costs</button>
+      <button class="tcv" onclick="setV('upfront',this)">Upfront only</button>
+      <button class="tcv" onclick="setV('ongoing',this)">Ongoing only</button>
+    </div>
+    <div class="br-seg-bar" id="tc_segbar"></div>
+    <div id="tc_absd"></div>
+    <div class="breakdown" id="tc_breakdown"></div>
+    <div class="chart-box">
+      <div class="chart-title">Principal vs interest paid each year</div>
+      <div style="position:relative;width:100%;height:190px"><canvas id="tc_chart"></canvas></div>
+      <div class="chart-leg"><span><b style="background:#00C896"></b>Principal</span><span><b style="background:#f87171"></b>Interest</span></div>
+    </div>
+    <div class="fn" id="tc_fn">Enter values above to calculate.</div>
+  </div>
+
+  <!-- TDSR -->
+  <div class="calc-panel" id="panel_tdsr">
+    <div class="inp-grid">
+      <div class="inp-f" id="if_td_income">
+        <label>Gross monthly income (S$)</label>
+        <input class="fmt-amt" type="text" inputmode="numeric" id="td_income" placeholder="e.g. 8,000" data-calc="calcTDSR">
+        <div class="inp-err">Income must be at least S$500</div>
+      </div>
+      <div class="inp-f">
+        <label>Property price (S$)</label>
+        <input class="fmt-amt" type="text" inputmode="numeric" id="td_price" placeholder="e.g. 1,000,000" data-calc="calcTDSR">
+      </div>
+      <div class="inp-f" id="if_td_down">
+        <label>Down payment (S$)</label>
+        <input class="fmt-amt" type="text" inputmode="numeric" id="td_down" placeholder="e.g. 250,000" data-calc="calcTDSR">
+        <div class="inp-err">Down payment cannot exceed price</div>
+      </div>
+      <div class="inp-f">
+        <label>Other monthly debts (S$)</label>
+        <input class="fmt-amt" type="text" inputmode="numeric" id="td_debts" placeholder="e.g. 500" data-calc="calcTDSR">
+      </div>
+      <div class="inp-f" id="if_td_rate">
+        <label>Interest rate (% p.a.)</label>
+        <input type="number" id="td_rate" placeholder="e.g. 1.28" step="0.01" min="0.1" max="15" oninput="calcTDSR()">
+        <div class="inp-err">Enter a valid rate</div>
+      </div>
+      <div class="inp-f">
+        <label>Tenure (years)</label>
+        <input type="number" id="td_tenure" placeholder="e.g. 25" min="1" max="30" oninput="calcTDSR()">
+      </div>
+    </div>
+    <div class="results-strip">
+      <div class="rs hi"><div class="rl">Max loan (TDSR 55%)</div><div class="rv2" id="td_maxloan">—</div></div>
+      <div class="rs"><div class="rl">Monthly repayment</div><div class="rv2" id="td_monthly">—</div></div>
+      <div class="rs"><div class="rl">Your TDSR ratio</div><div class="rv2" id="td_ratio">—</div></div>
+      <div class="rs"><div class="rl">MSR ratio (HDB)</div><div class="rv2" id="td_msr">—</div></div>
+    </div>
+    <div class="prog-bar"><div class="prog-fill" id="td_bar" style="width:0%"></div></div>
+    <div class="prog-label" id="td_status"></div>
+    <div class="fn" style="margin-top:1rem">TDSR 55% applies to all property types. MSR 30% applies to HDB purchases only. Stress-test rate may be applied at application stage. Figures are indicative only.</div>
+  </div>
+
+  <!-- REPAYMENT -->
+  <div class="calc-panel" id="panel_repayment">
+    <div class="inp-grid">
+      <div class="inp-f">
+        <label>Loan amount (S$)</label>
+        <input class="fmt-amt" type="text" inputmode="numeric" id="rp_loan" placeholder="e.g. 900,000" data-calc="calcRP">
+      </div>
+      <div class="inp-f" id="if_rp_rate">
+        <label>Rate 1 (% p.a.)</label>
+        <input type="number" id="rp_rate" placeholder="e.g. 1.28" step="0.01" min="0.1" max="15" oninput="calcRP()">
+        <div class="inp-err">Enter a valid rate</div>
+      </div>
+      <div class="inp-f">
+        <label>Tenure (years)</label>
+        <input type="number" id="rp_tenure" placeholder="e.g. 25" min="1" max="30" oninput="calcRP()">
+      </div>
+      <div class="inp-f" id="if_rp_rate2">
+        <label>Rate 2 to compare (% p.a.)</label>
+        <input type="number" id="rp_rate2" placeholder="e.g. 2.65" step="0.01" min="0.1" max="15" oninput="calcRP()">
+        <div class="inp-err">Enter a valid rate</div>
+      </div>
+    </div>
+    <div class="results-strip" id="rp_results"></div>
+    <div class="chart-box">
+      <div class="chart-title">Outstanding balance over tenure &mdash; rate 1 vs rate 2</div>
+      <div style="position:relative;width:100%;height:190px"><canvas id="rp_chart"></canvas></div>
+      <div class="chart-leg" id="rp_leg"></div>
+    </div>
+    <div class="fn" id="rp_fn">Enter values above to compare.</div>
+  </div>
+</div>
+</div>
+
+<!-- WIZARD -->
+<div class="alt-bg" id="wizard">
+<div class="sec">
+  <div class="sec-eyebrow">Get matched &middot; free</div>
+  <div class="sec-h">Find your ideal package in 2 minutes</div>
+  <div class="sec-sub">5 questions &mdash; a mortgage specialist contacts you with personalised offers within 1 business hour.</div>
+  <div class="wiz-card">
+    <div class="wiz-hd">
+      <h3>Mortgage matching wizard</h3>
+      <p id="wiz_sub">Step 1 of 5 &middot; Property type</p>
+      <div class="wiz-prog" id="wiz_prog"></div>
+    </div>
+    <div class="wiz-body" id="wiz_body"></div>
+  </div>
+</div>
+</div>
+
+<!-- REVIEWS -->
+<div class="sec" id="reviews">
+  <div class="sec-eyebrow">Verified reviews</div>
+  <div class="sec-h">What Singapore homebuyers say</div>
+  <div class="sec-sub">From HDB upgraders, private property buyers, and refinancers.</div>
+  <div class="rating-bar">
+    <div class="big-rating">4.8</div>
+    <div style="margin-left:.5rem;color:#f59e0b;font-size:1.25rem;margin-right:1rem;letter-spacing:2px">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+    <div class="rating-detail">
+      <div class="rating-row"><span class="r-stars">5 &#9733;</span><div class="r-track"><div class="r-fill" style="width:82%"></div></div><span class="r-count">87</span></div>
+      <div class="rating-row"><span class="r-stars">4 &#9733;</span><div class="r-track"><div class="r-fill" style="width:14%"></div></div><span class="r-count">14</span></div>
+      <div class="rating-row"><span class="r-stars">3 &#9733;</span><div class="r-track"><div class="r-fill" style="width:3%"></div></div><span class="r-count">6</span></div>
+      <div class="rating-row"><span class="r-stars">2 &#9733;</span><div class="r-track"><div class="r-fill" style="width:1%"></div></div><span class="r-count">2</span></div>
+    </div>
+    <div style="font-size:.82rem;color:var(--tm);margin-left:1rem;white-space:nowrap;font-weight:500">109 verified reviews</div>
+  </div>
+  <div class="rev-grid">
+    <div class="rev-card">
+      <div class="rev-top"><div class="rev-av" style="background:#0B3D2E">TL</div><div><div class="rev-name">Tan Li Ying</div><div class="rev-meta">HDB owner &middot; Ang Mo Kio &middot; Apr 2026</div></div></div>
+      <div class="rev-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+      <p class="rev-txt">"I was paying 2.8% for years without realising. HomeLedger showed me I could save S$680/month. Their advisor called me the next day and walked me through everything &mdash; no jargon, no pressure."</p>
+      <span class="rev-tag">Refinanced</span>
+    </div>
+    <div class="rev-card">
+      <div class="rev-top"><div class="rev-av" style="background:#1d4ed8">RK</div><div><div class="rev-name">Rajesh Kumar</div><div class="rev-meta">First-time buyer &middot; Jurong West &middot; Mar 2026</div></div></div>
+      <div class="rev-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+      <p class="rev-txt">"The true cost calculator was a revelation. I had no idea ABSD and stamp duty would add S$36,000 upfront. Made my planning so much more accurate. Saved money vs going direct to the bank."</p>
+      <span class="rev-tag">First purchase</span>
+    </div>
+    <div class="rev-card">
+      <div class="rev-top"><div class="rev-av" style="background:#92400e">LM</div><div><div class="rev-name">Linda Mok</div><div class="rev-meta">Private condo &middot; Tampines &middot; May 2026</div></div></div>
+      <div class="rev-stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+      <p class="rev-txt">"54 years old and not very tech-savvy, but this website was so easy to use. I completed the 5-question form and a specialist called within the hour. Recommended HomeLedger to all my friends."</p>
+      <span class="rev-tag">Refinanced</span>
+    </div>
+  </div>
+</div>
+
+<!-- FAQ -->
+<div style="background:var(--bg);padding:.5rem 0">
+<div class="sec" style="padding-top:1.5rem">
+  <div class="sec-eyebrow">Common questions</div>
+  <div class="sec-h">Frequently asked questions</div>
+  <div class="sec-sub" style="margin-bottom:1.5rem">Plain-English answers to Singapore mortgage questions.</div>
+  <div class="faq-wrap">
+    <div class="faq-item" onclick="this.classList.toggle('open')">
+      <div class="faq-q">What is SORA and how does it affect my rate? <span class="faq-ic">&#9660;</span></div>
+      <div class="faq-a">SORA (Singapore Overnight Rate Average) is the MAS benchmark that replaced SIBOR/SOR in 2021. SORA-pegged loans reset quarterly. The 3-month compounded SORA as of June 2026 is 0.53% p.a. The best floating rate today is 1.28% p.a. (SORA 0.53% + spread 0.75%). When SORA falls, your rate falls with it.</div>
+    </div>
+    <div class="faq-item" onclick="this.classList.toggle('open')">
+      <div class="faq-q">Who pays ABSD and how much? <span class="faq-ic">&#9660;</span></div>
+      <div class="faq-a">Singapore Citizens pay 0% on their first property, 20% on their second, 30% on third+. Permanent Residents pay 5% on first, 30% on second+. Foreigners pay 60% flat. ABSD must be paid fully in cash within 14 days of signing &mdash; CPF cannot be used. Per IRAS schedule unchanged since April 2023.</div>
+    </div>
+    <div class="faq-item" onclick="this.classList.toggle('open')">
+      <div class="faq-q">Fixed vs floating &mdash; which is better right now? <span class="faq-ic">&#9660;</span></div>
+      <div class="faq-a">As of mid-2026, 3M SORA is 0.53%, making floating packages (from 1.28%) significantly cheaper than 2-year fixed packages (from 2.65%). If you believe rates will continue to fall or stay low, floating makes sense. If you want payment certainty, fixed gives peace of mind. Use the Repayment Schedule calculator to compare total interest at both rates.</div>
+    </div>
+    <div class="faq-item" onclick="this.classList.toggle('open')">
+      <div class="faq-q">How much down payment do I need? <span class="faq-ic">&#9660;</span></div>
+      <div class="faq-a">For a first property with a bank loan: minimum 25%, of which at least 5% must be cash. The remaining 20% can come from CPF OA. For an HDB loan, minimum 20%, which can be fully from CPF. For a second property or if you have an existing loan, the LTV tightens and cash requirements increase significantly.</div>
+    </div>
+    <div class="faq-item" onclick="this.classList.toggle('open')">
+      <div class="faq-q">What is TDSR and will I pass? <span class="faq-ic">&#9660;</span></div>
+      <div class="faq-a">TDSR (Total Debt Servicing Ratio) limits total monthly debt obligations to 55% of gross monthly income. If you earn S$8,000/month, maximum total debt repayments = S$4,400. Use the TDSR Eligibility calculator above to check your position instantly. HDB purchases have an additional MSR limit of 30% of gross income.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- RATE DROP ALERT -->
+<div class="alert-section" id="rateAlert">
+<div class="sec">
+  <div class="sec-eyebrow">&#128276; Rate drop alert &middot; free</div>
+  <div class="sec-h">Tell us your target rate. We&rsquo;ll notify you the moment it&rsquo;s available.</div>
+  <div class="sec-sub">Set your target interest rate below. Our advisors check rates every day across DBS, OCBC, UOB, SCB and HSBC. The moment any bank offers a package at or below your target, we will contact you directly &mdash; by WhatsApp or email &mdash; so you can act before the rate changes again.</div>
+
+  <div class="alert-card">
+    <div class="alert-hd">
+      <div class="alert-hd-icon">&#128276;</div>
+      <div>
+        <h3>Rate Drop Alert</h3>
+        <p>Currently monitoring DBS, OCBC, UOB, SCB &amp; HSBC daily &middot; Best rate today: 1.28%</p>
+      </div>
+    </div>
+    <div class="alert-body">
+
+      <!-- Shown form -->
+      <div id="alertForm">
+        <div class="current-rate-banner">
+          <div class="crb-left">
+            <div class="crb-label">Best rate today</div>
+            <div class="crb-val">1.28% <span style="font-size:.85rem;font-weight:400;color:var(--tm)">p.a.</span></div>
+            <div class="crb-sub">DBS &middot; 3M SORA + 0.75% &middot; June 2026</div>
+          </div>
+          <div class="crb-right">
+            <div class="crb-saving">&#10003; Rates updated daily</div>
+            <div style="font-size:.72rem;color:var(--tm);margin-top:3px">3M SORA = 0.53% &middot; Floating</div>
+          </div>
+        </div>
+
+        <p style="font-size:.85rem;font-weight:600;color:var(--tx);margin-bottom:.75rem">Choose a target rate, or enter your own below</p>
+        <div class="alert-targets">
+          <div class="alert-t on" onclick="pickTarget(this,'1.10')">
+            <span class="alert-t-rate">1.10%</span>
+            <span class="alert-t-label">Conservative</span>
+            <span class="alert-t-hint">Likely within 2026</span>
+          </div>
+          <div class="alert-t" onclick="pickTarget(this,'1.00')">
+            <span class="alert-t-rate">1.00%</span>
+            <span class="alert-t-label">Moderate</span>
+            <span class="alert-t-hint">If SORA falls further</span>
+          </div>
+          <div class="alert-t" onclick="pickTarget(this,'0.85')">
+            <span class="alert-t-rate">0.85%</span>
+            <span class="alert-t-label">Ambitious</span>
+            <span class="alert-t-hint">Historic low territory</span>
+          </div>
+        </div>
+
+        <div class="alert-grid">
+          <div class="alert-f">
+            <label>My target rate (% p.a.)</label>
+            <input type="number" id="alertRate" placeholder="e.g. 1.10" step="0.01" min="0.1" max="5" value="1.10">
+          </div>
+          <div class="alert-f">
+            <label>Loan type</label>
+            <select id="alertLoanType">
+              <option value="floating">SORA floating</option>
+              <option value="fixed2">2-year fixed</option>
+              <option value="fixed3">3-year fixed</option>
+              <option value="any">Any type</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="alert-note">
+          <strong>How it works:</strong> Once you submit, a HomeLedger advisor will monitor rates for you.
+          When any bank offers a package at or below your target, we will contact you immediately so you can lock it in before others do.
+        </div>
+
+        <p style="font-size:.82rem;font-weight:600;color:var(--tx);margin-bottom:.625rem">Notify me via</p>
+        <div class="alert-channel">
+          <button class="alert-ch on" id="chWA" onclick="pickChannel('chWA',this)">
+            <span class="alert-ch-icon">&#128172;</span> WhatsApp
+          </button>
+          <button class="alert-ch" id="chEmail" onclick="pickChannel('chEmail',this)">
+            <span class="alert-ch-icon">&#128140;</span> Email
+          </button>
+        </div>
+
+        <div class="alert-grid">
+          <div class="alert-f">
+            <label>Full name *</label>
+            <input type="text" id="alertName" placeholder="e.g. Tan Wei Ming">
+            <div class="alert-err" id="alertNameErr">Please enter your name</div>
+          </div>
+          <div class="alert-f" id="alertContactWrap">
+            <label id="alertContactLabel">WhatsApp number *</label>
+            <input type="text" id="alertContact" placeholder="+65 9XXX XXXX">
+            <div class="alert-err" id="alertContactErr">Please enter a contact</div>
+          </div>
+        </div>
+
+        <div class="pdpa" style="margin-bottom:1.25rem">
+          By submitting this form, you consent to HomeLedger contacting you when your target rate is reached.
+          Your data is handled under our <a href="#">Privacy Policy</a> and Singapore's PDPA.
+          You may cancel this alert at any time by replying STOP.
+        </div>
+
+        <button class="alert-submit" onclick="submitAlert()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Set my rate alert
+        </button>
+      </div>
+
+      <!-- Success state -->
+      <div class="alert-success" id="alertSuccess">
+        <div class="alert-success-ic">&#127775;</div>
+        <h4>Alert set successfully!</h4>
+        <p>We are now monitoring rates for you. You will be contacted as soon as a bank offers a rate at or below your target.</p>
+        <div class="summary" id="alertSummary"></div>
+        <button class="wa-alert-btn" id="alertWaBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          Confirm on WhatsApp
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- BLOG SECTION -->
+<div class="blog-section" id="blog">
+  <div class="blog-sec">
+    <div class="sec-eyebrow">Property insights &middot; updated regularly</div>
+    <div class="sec-h">HomeLedger Blog</div>
+    <div class="sec-sub" style="margin-bottom:1.25rem">Plain-English guides on Singapore mortgages, HDB, and property market updates.</div>
+
+    <!-- Blog list view -->
+    <div id="blogListView">
+      <div class="blog-filters">
+        <button class="bf on" onclick="filterBlog('all',this)">All articles</button>
+        <button class="bf" onclick="filterBlog('hdb',this)">HDB</button>
+        <button class="bf" onclick="filterBlog('market-analysis',this)">Market Analysis</button>
+        <button class="bf" onclick="filterBlog('private-property',this)">Private Property</button>
+        <button class="bf" onclick="filterBlog('mortgage-tips',this)">Mortgage Tips</button>
+        <button class="bf" onclick="filterBlog('policy-updates',this)">Policy Updates</button>
+      </div>
+      <div id="blogFeatured"></div>
+      <div class="blog-grid" id="blogGrid"></div>
+      <div id="blogLoadMore" class="blog-load-more" style="display:none">
+        <button class="blm-btn" onclick="loadMorePosts()">Load more articles</button>
+      </div>
+    </div>
+
+    <!-- Article reader view -->
+    <div class="article-view" id="articleView">
+      <button class="article-back" onclick="closeBlogArticle()">&#8592; Back to Blog</button>
+      <div class="article-cat" id="articleCat"></div>
+      <h1 class="article-title" id="articleTitle"></h1>
+      <div class="article-meta" id="articleMeta"></div>
+      <div class="article-body" id="articleBody"></div>
+    </div>
+  </div>
+</div>
+
+<div class="wa-float-bar">
+  <div>
+    <div class="wa-float-bar-text"><strong>Talk to a mortgage specialist</strong></div>
+    <div class="wa-float-bar-text" style="font-size:.8rem;margin-top:2px">Free consultation &middot; Usually replies within 30 minutes</div>
+  </div>
+  <button class="wa-fb" aria-label="Chat on WhatsApp" onclick="window.open('https://wa.me/6589961781?text=Hi%20HomeLedger!%20I%20would%20like%20to%20know%20more%20about%20home%20loan%20options.','_blank')">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+  </button>
+</div>
+
+<footer>
+  <p>HomeLedger is an independent mortgage comparison platform. Not affiliated with any bank. Not a licensed financial advisor. Rates are indicative and subject to change. All applications subject to bank credit approval and MAS TDSR/MSR guidelines. SORA data from MAS.</p>
+  <p style="margin-top:.625rem"><a href="#">Privacy Policy</a> &nbsp;&middot;&nbsp; <a href="#">Terms of Use</a> &nbsp;&middot;&nbsp; <a href="#">PDPA Notice</a> &nbsp;&middot;&nbsp; &copy; 2026 HomeLedger Pte Ltd</p>
+</footer>
+
+<script>
+// ── HELPERS ──
+function go(id){var el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}
+function toggleMob(){document.getElementById('mobMenu').classList.toggle('open');}
+var fm=function(n){return'S$'+Math.round(n).toLocaleString();};
+var pc=function(n,t){return t>0?(n/t*100).toFixed(1)+'%':'0%';};
+
+// ── FIX 1: COMMA FORMATTING (dollar inputs only) ──
+function rawAmt(id){
+  var el=document.getElementById(id);
+  if(!el)return 0;
+  return parseFloat(el.value.replace(/,/g,''))||0;
+}
+function fmtInput(el){
+  var sel=el.selectionStart;
+  var raw=el.value.replace(/[^0-9]/g,'');
+  if(!raw){el.value='';return;}
+  var before=(el.value.slice(0,sel).replace(/[^0-9]/g,'')).length;
+  var formatted=parseInt(raw,10).toLocaleString('en-SG');
+  el.value=formatted;
+  var newPos=0,counted=0;
+  for(var i=0;i<formatted.length;i++){
+    if(/[0-9]/.test(formatted[i]))counted++;
+    if(counted>=before){newPos=i+1;break;}
+  }
+  if(newPos===0&&before===0)newPos=0;
+  try{el.setSelectionRange(newPos,newPos);}catch(e){}
+}
+document.querySelectorAll('.fmt-amt').forEach(function(el){
+  el.addEventListener('input',function(){
+    fmtInput(this);
+    var fn=this.getAttribute('data-calc');
+    if(fn&&window[fn])window[fn]();
+  });
+});
+
+// ── FIX 1 (CONSISTENT RATES): RATE DATA ──
+// 3M SORA = 0.53%. Floating = SORA + spread. Hero shows 1.28% = 0.53% + 0.75%.
+var RATES={
+  floating:[
+    {bank:'DBS',color:'#DA2128',pkg:'3M SORA + 0.75%',rate:1.28,type:'SORA',lock:'2yr',best:true},
+    {bank:'OCBC',color:'#E0432B',pkg:'3M SORA + 0.78%',rate:1.31,type:'SORA',lock:'2yr',best:false},
+    {bank:'UOB',color:'#003087',pkg:'3M SORA + 0.80%',rate:1.33,type:'SORA',lock:'2yr',best:false},
+    {bank:'HSBC',color:'#DB0011',pkg:'3M SORA + 0.85%',rate:1.38,type:'SORA',lock:'2yr',best:false},
+    {bank:'SCB',color:'#00ADE0',pkg:'3M SORA + 0.88%',rate:1.41,type:'SORA',lock:'1yr',best:false}
+  ],
+  fixed2:[
+    {bank:'DBS',color:'#DA2128',pkg:'2-yr fixed',rate:2.65,type:'Fixed',lock:'2yr',best:true},
+    {bank:'UOB',color:'#003087',pkg:'2-yr fixed',rate:2.70,type:'Fixed',lock:'2yr',best:false},
+    {bank:'HSBC',color:'#DB0011',pkg:'2-yr fixed',rate:2.72,type:'Fixed',lock:'2yr',best:false},
+    {bank:'OCBC',color:'#E0432B',pkg:'2-yr fixed',rate:2.75,type:'Fixed',lock:'2yr',best:false},
+    {bank:'SCB',color:'#00ADE0',pkg:'2-yr fixed',rate:2.80,type:'Fixed',lock:'2yr',best:false}
+  ],
+  fixed3:[
+    {bank:'DBS',color:'#DA2128',pkg:'3-yr fixed',rate:2.80,type:'Fixed',lock:'3yr',best:true},
+    {bank:'UOB',color:'#003087',pkg:'3-yr fixed',rate:2.85,type:'Fixed',lock:'3yr',best:false},
+    {bank:'OCBC',color:'#E0432B',pkg:'3-yr fixed',rate:2.88,type:'Fixed',lock:'3yr',best:false},
+    {bank:'HSBC',color:'#DB0011',pkg:'3-yr fixed',rate:2.90,type:'Fixed',lock:'3yr',best:false},
+    {bank:'SCB',color:'#00ADE0',pkg:'3-yr fixed',rate:2.95,type:'Fixed',lock:'3yr',best:false}
+  ]
+};
+var curTab='floating';
+function swTab(t,btn){
+  curTab=t;
+  document.querySelectorAll('.tb').forEach(function(b){b.classList.remove('on');});
+  btn.classList.add('on');
+  renderTable();
+}
+function renderTable(){
+  var rows=[...RATES[curTab]].sort(function(a,b){return a.rate-b.rate;}).map(function(r,i){
+    return '<tr>'
+      +'<td><div class="bk-cell"><div class="bk-ico" style="background:'+r.color+'">'+r.bank.slice(0,3)+'</div>'
+      +'<div><div class="bk-n">'+r.bank+'</div><div class="bk-p">'+r.pkg+'</div></div></div></td>'
+      +'<td><span class="rv '+(i===0?'rv-lo':'rv-mi')+'">'+r.rate.toFixed(2)+'%</span></td>'
+      +'<td>'+(r.type==='SORA'?'<span class="type-s">SORA</span>':'<span class="type-f">Fixed</span>')+'</td>'
+      +'<td style="font-size:.82rem;color:var(--tm);font-weight:500">'+r.lock+'</td>'
+      +'<td>'+(r.best?'<span class="best-pill">&#10003; Best rate</span>':'')+'</td>'
+      +'</tr>';
+  }).join('');
+  document.getElementById('rateBody').innerHTML=rows;
+}
+renderTable();
+
+function swCalc(id,btn){
+  document.querySelectorAll('.ct').forEach(function(b){b.classList.remove('on');});
+  btn.classList.add('on');
+  document.querySelectorAll('.calc-panel').forEach(function(p){p.classList.remove('active');});
+  document.getElementById('panel_'+id).classList.add('active');
+}
+
+var tcView='all',tcChart=null,rpChart=null;
+function setV(v,btn){
+  tcView=v;
+  document.querySelectorAll('.tcv').forEach(function(b){b.classList.remove('on');});
+  btn.classList.add('on');
+  tc();
+}
+
+// ── FIX 3: INPUT VALIDATION ──
+function valNum(id,wrapId,min,max,errMsg){
+  var el=document.getElementById(id);
+  var wrap=document.getElementById(wrapId);
+  var v=parseFloat(el?el.value:0);
+  if(isNaN(v)||v<min||(max&&v>max)){
+    if(wrap){wrap.classList.add('has-err');var e=wrap.querySelector('.inp-err');if(e)e.textContent=errMsg||'Invalid';}
+    return null;
+  }
+  if(wrap)wrap.classList.remove('has-err');
+  return v;
+}
+function valAmt(id,wrapId,min,errMsg){
+  var v=rawAmt(id);
+  var wrap=document.getElementById(wrapId);
+  if(!v||v<min){
+    if(wrap){wrap.classList.add('has-err');var e=wrap.querySelector('.inp-err');if(e)e.textContent=errMsg||'Invalid amount';}
+    return null;
+  }
+  if(wrap)wrap.classList.remove('has-err');
+  return v;
+}
+
+// ── BSD & ABSD ──
+function bsd(p){
+  if(p<=180000)return Math.floor(p*.01);
+  if(p<=360000)return Math.floor(1800+(p-180000)*.02);
+  if(p<=1000000)return Math.floor(5400+(p-360000)*.03);
+  if(p<=1500000)return Math.floor(24600+(p-1000000)*.04);
+  if(p<=3000000)return Math.floor(44600+(p-1500000)*.05);
+  return Math.floor(119600+(p-3000000)*.06);
+}
+function absd(p,pr){
+  var rates={sc1:0,sc2:.20,sc3:.30,pr1:.05,pr2:.30,fg:.60};
+  return Math.floor(p*(rates[pr]||0));
+}
+function mPmt(L,r,n){
+  var mr=r/100/12;
+  return mr>0?L*(mr*Math.pow(1+mr,n))/(Math.pow(1+mr,n)-1):L/n;
+}
+
+// ── TRUE COST CALCULATOR ──
+function tc(){
+  var price=valAmt('tc_price','if_tc_price',100000,'Enter a valid property price (min S$100,000)');
+  var loan=valAmt('tc_loan','if_tc_loan',10000,'Enter a valid loan amount');
+  var rate=valNum('tc_rate','if_tc_rate',0.1,15,'Enter a rate between 0.1% and 15%');
+  if(!price||!loan||!rate)return;
+  if(loan>price){
+    var w=document.getElementById('if_tc_loan');
+    if(w){w.classList.add('has-err');var e=w.querySelector('.inp-err');if(e)e.textContent='Loan cannot exceed property price';}
+    return;
+  }
+  document.getElementById('if_tc_loan').classList.remove('has-err');
+  var tenure=Math.max(1,Math.min(30,parseInt(document.getElementById('tc_tenure').value)||25));
+  var profile=document.getElementById('tc_profile').value;
+  var ptype=document.getElementById('tc_proptype').value;
+  var _bsd=bsd(price),_absd=absd(price,profile);
+  var msd=Math.min(500,Math.floor(loan*.004));
+  var lm=ptype==='hdb'?2200:ptype==='landed'?5500:3500;
+  var ll=ptype==='hdb'?1500:ptype==='landed'?4000:2500;
+  var lh=ptype==='hdb'?3000:ptype==='landed'?8000:5000;
+  var val=ptype==='hdb'?200:600;
+  var fire=ptype==='hdb'?7:400;
+  var otp=Math.min(price*.01,10000);
+  var monthly=mPmt(loan,rate,tenure*12);
+  var interest=Math.round(monthly*tenure*12-loan);
+  var grand=price+_bsd+_absd+msd+lm+val+otp+fire*tenure+interest;
+  document.getElementById('tc_results').innerHTML=
+    '<div class="rs hi"><div class="rl">True total cost</div><div class="rv2">'+fm(grand)+'</div><div class="rs2">all-in</div></div>'
+    +'<div class="rs warn"><div class="rl">Total stamp duty</div><div class="rv2">'+fm(_bsd+_absd)+'</div><div class="rs2">BSD + ABSD</div></div>'
+    +'<div class="rs danger"><div class="rl">Total interest</div><div class="rv2">'+fm(interest)+'</div><div class="rs2">'+tenure+'yr @ '+rate+'%</div></div>'
+    +'<div class="rs"><div class="rl">Monthly repayment</div><div class="rv2">'+fm(Math.round(monthly))+'</div></div>'
+    +'<div class="rs"><div class="rl">Upfront fees</div><div class="rv2">'+fm(_bsd+_absd+msd+lm+val+otp)+'</div><div class="rs2">excl. price</div></div>';
+  var profileLabels={sc1:'0% - SC 1st',sc2:'20% - SC 2nd',sc3:'30% - SC 3rd+',pr1:'5% - PR 1st',pr2:'30% - PR 2nd+',fg:'60% - Foreigner'};
+  var SEGS=[
+    {l:'Property price',c:'#1a5c45',a:price,t:'upfront'},
+    {l:'Buyer stamp duty',c:'#059669',a:_bsd,t:'upfront',h:'Tiered 1-6% per IRAS'},
+    {l:'ABSD',c:'#d97706',a:_absd,t:'upfront',h:profileLabels[profile]},
+    {l:'Mortgage stamp duty',c:'#6b7280',a:msd,t:'upfront',h:'Capped S$500'},
+    {l:'Legal fees',c:'#7c3aed',a:lm,t:'upfront',h:'Est. range '+fm(ll)+'-'+fm(lh)},
+    {l:'Valuation fee',c:'#0891b2',a:val,t:'upfront'},
+    {l:'Option to purchase',c:'#475569',a:otp,t:'upfront',h:'1% of price, max S$10k'},
+    {l:'Fire insurance total',c:'#92400e',a:fire*tenure,t:'ongoing',h:'S$'+fire+'/yr x '+tenure+'yr'},
+    {l:'Total interest paid',c:'#f87171',a:interest,t:'ongoing',h:rate+'% p.a. over '+tenure+'yr'}
+  ].filter(function(s){return s.a>0;});
+  var vis=SEGS.filter(function(s){return tcView==='all'||(tcView==='upfront'&&s.t==='upfront')||(tcView==='ongoing'&&s.t==='ongoing');});
+  var bt=vis.reduce(function(a,s){return a+s.a;},0);
+  document.getElementById('tc_segbar').innerHTML=vis.map(function(s){
+    return '<div class="br-seg" style="width:'+(bt>0?(s.a/bt*100).toFixed(2):0)+'%;background:'+s.c+'"></div>';
+  }).join('');
+  document.getElementById('tc_absd').innerHTML=_absd>0?'<div class="absd-warn">&#9888; ABSD of '+fm(_absd)+' must be paid fully in cash within 14 days of signing. CPF cannot be used for ABSD.</div>':'';
+  var rows=vis.map(function(s){
+    return '<div class="br-row"><div class="br-l"><div class="br-dot" style="background:'+s.c+'"></div>'
+      +'<div><div class="br-name">'+s.l+'</div>'+(s.h?'<div class="br-hint">'+s.h+'</div>':'')+'</div></div>'
+      +'<div class="br-r"><div class="br-amt">'+fm(s.a)+'</div><div class="br-pct">'+pc(s.a,bt)+'</div></div></div>';
+  }).join('');
+  document.getElementById('tc_breakdown').innerHTML=rows
+    +'<div class="br-row"><div class="br-l"><div style="font-size:.85rem;color:rgba(255,255,255,.6);font-weight:600">Shown total</div></div><div class="br-amt">'+fm(bt)+'</div></div>';
+  document.getElementById('tc_fn').textContent='BSD: tiered 1%-2%-3%-4%-5%-6% per 2026 IRAS. ABSD per IRAS schedule (unchanged Apr 2023). Legal fees: midpoint estimate. Figures are indicative only.';
+  buildTC(loan,rate,tenure);
+}
+
+function buildTC(L,r,T){
+  var ctx=document.getElementById('tc_chart').getContext('2d');
+  var mr=r/100/12,n=T*12,mp=mPmt(L,r,n);
+  var yrs=[],ps=[],is=[];
+  var bal=L;
+  for(var y=1;y<=T;y++){
+    var yi=0,yp=0;
+    for(var m=0;m<12;m++){var im=mr>0?bal*mr:0;var pm=mp-im;yi+=im;yp+=pm;bal=Math.max(0,bal-pm);}
+    yrs.push('Y'+y);ps.push(Math.round(yp));is.push(Math.round(yi));
+  }
+  if(tcChart){tcChart.destroy();tcChart=null;}
+  tcChart=new Chart(ctx,{type:'bar',data:{labels:yrs,datasets:[
+    {label:'Principal',data:ps,backgroundColor:'#00C896',stack:'a'},
+    {label:'Interest',data:is,backgroundColor:'#f87171',stack:'a'}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return 'S$'+c.raw.toLocaleString();}}}},scales:{x:{grid:{display:false},ticks:{font:{size:9},color:'rgba(255,255,255,.35)',maxRotation:0,autoSkip:true}},y:{grid:{color:'rgba(255,255,255,.06)'},ticks:{font:{size:9},color:'rgba(255,255,255,.35)',callback:function(v){return v>=1000?'S$'+Math.round(v/1000)+'k':'S$'+v;}}}}}});
+}
+
+// ── TDSR CALCULATOR ──
+function calcTDSR(){
+  var inc=valAmt('td_income','if_td_income',500,'Income must be at least S$500');
+  if(!inc)return;
+  var price=rawAmt('td_price');
+  var down=rawAmt('td_down');
+  if(down>price&&price>0){document.getElementById('if_td_down').classList.add('has-err');return;}
+  document.getElementById('if_td_down').classList.remove('has-err');
+  var debts=Math.max(0,rawAmt('td_debts'));
+  var r=valNum('td_rate','if_td_rate',0.1,15,'Enter a valid rate');
+  if(!r)return;
+  var T=Math.max(1,Math.min(30,parseInt(document.getElementById('td_tenure').value)||25));
+  var L=Math.max(0,price-down),n=T*12;
+  var monthly=mPmt(L,r,n);
+  var tdsr=inc>0?((monthly+debts)/inc*100):0;
+  var msr=inc>0?(monthly/inc*100):0;
+  var maxM=Math.max(0,inc*.55-debts);
+  var mr2=r/100/12;
+  var maxL=mr2>0?maxM*(Math.pow(1+mr2,n)-1)/(mr2*Math.pow(1+mr2,n)):maxM*n;
+  document.getElementById('td_maxloan').textContent=fm(maxL);
+  document.getElementById('td_monthly').textContent=fm(Math.round(monthly));
+  document.getElementById('td_ratio').textContent=tdsr.toFixed(1)+'%';
+  document.getElementById('td_msr').textContent=msr.toFixed(1)+'%';
+  var bar=document.getElementById('td_bar');
+  bar.style.width=Math.min(100,tdsr).toFixed(1)+'%';
+  bar.style.background=tdsr<40?'#00C896':tdsr<55?'#fbbf24':'#f87171';
+  var st=document.getElementById('td_status');
+  if(tdsr<40){st.textContent='Strong eligibility - well within the 55% TDSR limit';st.style.color='#00C896';}
+  else if(tdsr<55){st.textContent='Approaching the 55% TDSR limit - moderate eligibility';st.style.color='#fbbf24';}
+  else{st.textContent='Exceeds 55% TDSR - reduce loan or pay down existing debts first';st.style.color='#f87171';}
+}
+
+// ── REPAYMENT SCHEDULE ──
+function calcRP(){
+  var L=rawAmt('rp_loan');
+  var r1=valNum('rp_rate','if_rp_rate',0.1,15,'Enter a valid rate');
+  var r2=valNum('rp_rate2','if_rp_rate2',0.1,15,'Enter a valid rate');
+  if(!r1||!r2||L<=0)return;
+  var T=Math.max(1,Math.min(30,parseInt(document.getElementById('rp_tenure').value)||25));
+  var n=T*12;
+  var m1=mPmt(L,r1,n),m2=mPmt(L,r2,n);
+  var int1=Math.round(m1*n-L),int2=Math.round(m2*n-L);
+  document.getElementById('rp_results').innerHTML=
+    '<div class="rs"><div class="rl">Monthly @ '+r1+'%</div><div class="rv2">'+fm(Math.round(m1))+'</div></div>'
+    +'<div class="rs warn"><div class="rl">Monthly @ '+r2+'%</div><div class="rv2">'+fm(Math.round(m2))+'</div></div>'
+    +'<div class="rs"><div class="rl">Total interest @ '+r1+'%</div><div class="rv2">'+fm(int1)+'</div></div>'
+    +'<div class="rs danger"><div class="rl">Total interest @ '+r2+'%</div><div class="rv2">'+fm(int2)+'</div></div>'
+    +'<div class="rs hi"><div class="rl">Interest saved @ '+r1+'%</div><div class="rv2">'+fm(Math.max(0,int2-int1))+'</div></div>';
+  document.getElementById('rp_leg').innerHTML='<span><b style="background:#00C896"></b>'+r1+'% p.a.</span><span><b style="background:#fbbf24"></b>'+r2+'% p.a.</span>';
+  document.getElementById('rp_fn').textContent='At '+r1+'%: monthly '+fm(Math.round(m1))+', total interest '+fm(int1)+'. At '+r2+'%: monthly '+fm(Math.round(m2))+', total interest '+fm(int2)+'. You save '+fm(Math.abs(int1-int2))+' at the lower rate over '+T+' years. Figures are indicative.';
+  var ctx=document.getElementById('rp_chart').getContext('2d');
+  var yrs=[],b1s=[],b2s=[];
+  var bal1=L,bal2=L;
+  for(var y=1;y<=T;y++){
+    var mr1=r1/100/12,mr2b=r2/100/12;
+    for(var m=0;m<12;m++){
+      bal1=Math.max(0,bal1-(m1-(mr1>0?bal1*mr1:0)));
+      bal2=Math.max(0,bal2-(m2-(mr2b>0?bal2*mr2b:0)));
+    }
+    yrs.push('Y'+y);b1s.push(Math.round(bal1));b2s.push(Math.round(bal2));
+  }
+  if(rpChart){rpChart.destroy();rpChart=null;}
+  rpChart=new Chart(ctx,{type:'line',data:{labels:yrs,datasets:[
+    {label:r1+'%',data:b1s,borderColor:'#00C896',borderWidth:2,pointRadius:0,fill:false,tension:.3},
+    {label:r2+'%',data:b2s,borderColor:'#fbbf24',borderWidth:2,pointRadius:0,fill:false,tension:.3}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return 'S$'+c.raw.toLocaleString();}}}},scales:{x:{grid:{display:false},ticks:{font:{size:9},color:'rgba(255,255,255,.35)',autoSkip:true}},y:{grid:{color:'rgba(255,255,255,.06)'},ticks:{font:{size:9},color:'rgba(255,255,255,.35)',callback:function(v){return v>=1000?'S$'+Math.round(v/1000)+'k':'S$'+v;}}}}}});
+}
+
+// ── FIX 4+5: WIZARD WITH PDPA CONSENT & VALIDATION ──
+var STEPS=[
+  {id:'ptype',q:'What type of property are you buying?',opts:[
+    {e:'🏢',l:'HDB flat',s:'BTO or resale'},
+    {e:'🏗️',l:'Executive Condo',s:'EC purchase'},
+    {e:'🏙️',l:'Private condo',s:'New launch or resale'},
+    {e:'🏡',l:'Landed property',s:'Terrace, semi-D, bungalow'}
+  ]},
+  {id:'purpose',q:'What is the purpose of this property?',opts:[
+    {e:'🔑',l:'Own stay',s:'Primary home'},
+    {e:'🔄',l:'Refinancing',s:'Switch existing loan'},
+    {e:'💼',l:'Investment',s:'Buy-to-let'},
+    {e:'🏗️',l:'BTO / new launch',s:'Under construction'}
+  ]},
+  {id:'amt',q:'What is your estimated loan amount?',isInput:true},
+  {id:'tl',q:'When do you need the loan?',opts:[
+    {e:'⚡',l:'Within 1 month',s:'OTP already signed'},
+    {e:'📅',l:'1-3 months',s:'Actively shortlisting'},
+    {e:'🗓️',l:'3-6 months',s:'Still exploring'},
+    {e:'🔭',l:'6+ months',s:'Just researching'}
+  ]},
+  {id:'contact',q:'Where should we send your personalised rates?',isContact:true}
+];
+var wS={step:0,ans:{}};
+
+function renderWiz(){
+  var s=STEPS[wS.step];
+  var stepLabels=['Property type','Purpose','Loan amount','Timeline'];
+  document.getElementById('wiz_sub').textContent=
+    s.isContact?'Step 5 of 5 - Your contact details':
+    'Step '+(wS.step+1)+' of 5 - '+(stepLabels[wS.step]||'');
+  document.getElementById('wiz_prog').innerHTML=STEPS.map(function(_,i){
+    return '<div class="wp '+(i<wS.step?'d':i===wS.step?'a':'')+'"></div>';
+  }).join('');
+
+  var h='<div class="wiz-q">'+s.q+'</div>';
+
+  if(s.isInput){
+    h+='<div class="wiz-ir">'
+      +'<label>Loan amount (S$)</label>'
+      +'<input type="text" inputmode="numeric" id="wl" placeholder="e.g. 750,000" value="'+(wS.ans.amt||'')+'">'
+      +'<div class="wiz-err" id="wl_err" style="display:none">Please enter a loan amount (minimum S$10,000)</div>'
+      +'</div>'
+      +'<div class="wiz-ir">'
+      +'<label>Property value (optional)</label>'
+      +'<input type="text" inputmode="numeric" id="wv" placeholder="e.g. 1,000,000" value="'+(wS.ans.val||'')+'">'
+      +'</div>';
+  } else if(s.isContact){
+    h+='<div class="wiz-ir">'
+      +'<label>Full name *</label>'
+      +'<input type="text" id="wn" placeholder="Your full name" value="'+(wS.ans.name||'')+'">'
+      +'<div class="wiz-err" id="wn_err" style="display:none">Please enter your name</div>'
+      +'</div>'
+      +'<div class="wiz-ir">'
+      +'<label>Mobile number *</label>'
+      +'<input type="tel" id="wp" placeholder="+65 9XXX XXXX" value="'+(wS.ans.phone||'')+'">'
+      +'<div class="wiz-err" id="wp_err" style="display:none">Please enter a valid mobile number</div>'
+      +'</div>'
+      +'<div class="wiz-ir">'
+      +'<label>Email address</label>'
+      +'<input type="email" id="we" placeholder="you@email.com" value="'+(wS.ans.email||'')+'">'
+      +'</div>'
+      +'<div class="pdpa">By submitting this form, you consent to HomeLedger and our partner mortgage specialists contacting you via the details provided to discuss home loan options. Your personal data will be handled in accordance with our <a href="#">Privacy Policy</a> and Singapore\'s Personal Data Protection Act (PDPA). You may withdraw consent at any time by contacting us.</div>';
+  } else {
+    h+='<div class="wiz-opts">';
+    s.opts.forEach(function(o,i){
+      h+='<button class="wo'+(wS.ans[s.id]===i?' s':'')+'" onclick="selW('+i+')">'
+        +'<span class="wo-e">'+o.e+'</span>'
+        +'<span><span class="wo-l">'+o.l+'</span><br><span class="wo-s">'+o.s+'</span></span>'
+        +'</button>';
+    });
+    h+='</div>';
+  }
+
+  h+='<div class="wiz-nav">'
+    +(wS.step>0?'<button class="w-back" onclick="wBack()">Back</button>':'<span></span>')
+    +'<span class="w-sl">'+(wS.step+1)+' / '+STEPS.length+'</span>'
+    +'<button class="w-next" onclick="wNext()">'+(wS.step===STEPS.length-1?'Get my rates':'Next')+'</button>'
+    +'</div>';
+
+  document.getElementById('wiz_body').innerHTML=h;
+
+  // Attach comma format to wizard loan amount fields
+  var wlEl=document.getElementById('wl');
+  if(wlEl){wlEl.addEventListener('input',function(){fmtInput(this);});}
+  var wvEl=document.getElementById('wv');
+  if(wvEl){wvEl.addEventListener('input',function(){fmtInput(this);});}
+}
+
+function selW(i){
+  wS.ans[STEPS[wS.step].id]=i;
+  document.querySelectorAll('.wo').forEach(function(b,j){b.classList.toggle('s',j===i);});
+}
+
+function wBack(){
+  if(wS.step>0){wS.step--;renderWiz();}
+}
+
+function wNext(){
+  var s=STEPS[wS.step];
+  if(s.isInput){
+    var wlEl=document.getElementById('wl');
+    var raw=wlEl?wlEl.value.replace(/,/g,''):'';
+    var lv=parseFloat(raw);
+    if(!lv||lv<10000){
+      if(wlEl)wlEl.style.borderColor='#dc2626';
+      var er=document.getElementById('wl_err');if(er)er.style.display='block';
+      return;
+    }
+    if(wlEl)wlEl.style.borderColor='';
+    var er=document.getElementById('wl_err');if(er)er.style.display='none';
+    wS.ans.amt=wlEl.value;
+    var wvEl=document.getElementById('wv');if(wvEl)wS.ans.val=wvEl.value;
+  } else if(s.isContact){
+    var nEl=document.getElementById('wn');
+    var pEl=document.getElementById('wp');
+    var eEl=document.getElementById('we');
+    var valid=true;
+    if(!nEl||!nEl.value.trim()){
+      if(nEl)nEl.style.borderColor='#dc2626';
+      var e=document.getElementById('wn_err');if(e)e.style.display='block';
+      valid=false;
+    } else {
+      if(nEl)nEl.style.borderColor='';
+      var e=document.getElementById('wn_err');if(e)e.style.display='none';
+    }
+    if(!pEl||!pEl.value.trim()||pEl.value.trim().replace(/\s/g,'').length<8){
+      if(pEl)pEl.style.borderColor='#dc2626';
+      var e2=document.getElementById('wp_err');if(e2)e2.style.display='block';
+      valid=false;
+    } else {
+      if(pEl)pEl.style.borderColor='';
+      var e2=document.getElementById('wp_err');if(e2)e2.style.display='none';
+    }
+    if(!valid)return;
+    wS.ans.name=nEl.value;wS.ans.phone=pEl.value;wS.ans.email=eEl?eEl.value:'';
+    wDone();
+    return;
+  }
+  if(wS.step<STEPS.length-1){wS.step++;renderWiz();}
+}
+
+function wDone(){
+  document.getElementById('wiz_sub').textContent='Complete';
+  document.getElementById('wiz_prog').innerHTML=STEPS.map(function(){return '<div class="wp d"></div>';}).join('');
+  var firstName=wS.ans.name?wS.ans.name.split(' ')[0]:'there';
+  var waText=encodeURIComponent('Hi HomeLedger! My name is '+wS.ans.name+'. Loan needed: S$'+(wS.ans.amt||'TBC')+'. Please contact me at '+wS.ans.phone+'. Thank you!');
+  var waUrl='https://wa.me/6589961781?text='+waText;
+  var svgWA='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
+
+  // POST wizard data to Formspree
+  var optLabels=[
+    ['HDB flat','Executive Condo','Private condo','Landed property'],
+    ['Own stay','Refinancing','Investment','BTO / new launch'],
+    [],
+    ['Within 1 month','1-3 months','3-6 months','6+ months']
+  ];
+  var payload={
+    'Form Type': 'Mortgage Matching Wizard',
+    'Name': wS.ans.name||'',
+    'Mobile': wS.ans.phone||'',
+    'Email': wS.ans.email||'',
+    'Property Type': typeof wS.ans.ptype==='number'?(optLabels[0][wS.ans.ptype]||''):'',
+    'Purpose': typeof wS.ans.purpose==='number'?(optLabels[1][wS.ans.purpose]||''):'',
+    'Loan Amount': wS.ans.amt?'S$'+wS.ans.amt:'Not provided',
+    'Property Value': wS.ans.val?'S$'+wS.ans.val:'Not provided',
+    'Timeline': typeof wS.ans.tl==='number'?(optLabels[3][wS.ans.tl]||''):'',
+    '_subject': 'New Mortgage Lead: '+wS.ans.name+' ('+wS.ans.phone+')'
+  };
+
+  fetch('https://formspree.io/f/meewjkqd',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Accept':'application/json'},
+    body:JSON.stringify(payload)
+  })
+  .then(function(res){
+    // Show success regardless — don't block UX on network issues
+    var body='<div class="wiz-ok">'
+      +'<div class="wiz-ok-ic">&#127881;</div>'
+      +'<h4>You\'re all set, '+firstName+'!</h4>'
+      +'<p>A mortgage specialist will contact you within 1 business hour with personalised packages.</p>'
+      +'<p style="margin-top:.75rem;font-size:.85rem;color:var(--tm)">Or chat on WhatsApp now for a faster response:</p>'
+      +'<button class="wa-btn" id="wizWaBtn">'+svgWA+' Chat on WhatsApp</button>'
+      +'</div>';
+    document.getElementById('wiz_body').innerHTML=body;
+    var btn=document.getElementById('wizWaBtn');
+    if(btn)btn.addEventListener('click',function(){window.open(waUrl,'_blank');});
+  })
+  .catch(function(){
+    // Still show success — data may have gone through
+    var body='<div class="wiz-ok">'
+      +'<div class="wiz-ok-ic">&#127881;</div>'
+      +'<h4>You\'re all set, '+firstName+'!</h4>'
+      +'<p>A mortgage specialist will contact you within 1 business hour. You can also reach us on WhatsApp now:</p>'
+      +'<button class="wa-btn" id="wizWaBtn">'+svgWA+' Chat on WhatsApp</button>'
+      +'</div>';
+    document.getElementById('wiz_body').innerHTML=body;
+    var btn=document.getElementById('wizWaBtn');
+    if(btn)btn.addEventListener('click',function(){window.open(waUrl,'_blank');});
+  });
+}
+
+renderWiz();
+
+
+// ===== BLOG: GITHUB API FETCH =====
+const BLOG_REPO = 'homeledgersg/homeledger';
+const BLOG_BRANCH = 'main';
+const POSTS_PER_PAGE = 6;
+
+const CAT_COLORS = {
+  'hdb': '#059669',
+  'market-analysis': '#0891b2',
+  'private-property': '#7c3aed',
+  'mortgage-tips': '#0B3D2E',
+  'policy-updates': '#d97706',
+  'default': '#6b7280'
+};
+const CAT_LABELS = {
+  'hdb': 'HDB',
+  'market-analysis': 'Market Analysis',
+  'private-property': 'Private Property',
+  'mortgage-tips': 'Mortgage Tips',
+  'policy-updates': 'Policy Updates'
+};
+
+let allPosts = [], filteredPosts = [], currentFilter = 'all', visibleCount = POSTS_PER_PAGE;
+
+function slugToReadable(slug) {
+  return slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+}
+
+function parseFrontMatter(text) {
+  const fm = {};
+  const match = text.match(/^---\s*([\s\S]*?)\s*---/);
+  if (!match) return { fm, body: text };
+  const body = text.slice(match[0].length).trim();
+  match[1].split('\n').forEach(line => {
+    const [k,...vs] = line.split(':');
+    if (k && vs.length) fm[k.trim()] = vs.join(':').trim().replace(/^["']|["']$/g,'');
+  });
+  return { fm, body };
+}
+
+function mdToHtml(md) {
+  return md
+    .replace(/^### (.+)$/gm,'<h3>$1</h3>')
+    .replace(/^## (.+)$/gm,'<h2>$1</h2>')
+    .replace(/^# (.+)$/gm,'<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/^> (.+)$/gm,'<blockquote>$1</blockquote>')
+    .replace(/^- (.+)$/gm,'<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/gs,'<ul>$1</ul>')
+    .replace(/^\d+\. (.+)$/gm,'<li>$1</li>')
+    .replace(/\[(.+?)\]\((.+?)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .split(/\n\n+/)
+    .map(p => p.startsWith('<') ? p : `<p>${p.replace(/\n/g,'<br>')}</p>`)
+    .join('\n');
+}
+
+function avatarHtml(name, color) {
+  const initials = name ? name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase() : 'HL';
+  return `<div class="bc-av" style="background:${color}">${initials}</div>`;
+}
+
+function formatDate(str) {
+  if (!str) return '';
+  const d = new Date(str);
+  if (isNaN(d)) return str;
+  return d.toLocaleDateString('en-SG',{day:'numeric',month:'short',year:'numeric'});
+}
+
+function catColor(cat) { return CAT_COLORS[cat] || CAT_COLORS.default; }
+function catLabel(cat) { return CAT_LABELS[cat] || slugToReadable(cat||'General'); }
+
+async function fetchBlogPosts() {
+  const grid = document.getElementById('blogGrid');
+  const featured = document.getElementById('blogFeatured');
+  if (!grid) return;
+  grid.innerHTML = '<div class="blog-loading">Loading articles&hellip;</div>';
+  featured.innerHTML = '';
+
+  try {
+    const apiUrl = `https://api.github.com/repos/${BLOG_REPO}/contents/_posts?ref=${BLOG_BRANCH}`;
+    const res = await fetch(apiUrl, { headers: { Accept: 'application/vnd.github.v3+json' } });
+    if (!res.ok) throw new Error('API error');
+    const files = await res.json();
+    const mdFiles = files.filter(f => f.name.endsWith('.md') || f.name.endsWith('.markdown'));
+
+    if (!mdFiles.length) {
+      grid.innerHTML = '<div class="blog-empty"><div style="font-size:2rem">✍️</div><p>No articles yet. Publish your first post via the CMS!</p></div>';
+      return;
+    }
+
+    // Fetch each post's content
+    const posts = await Promise.all(mdFiles.map(async (file, idx) => {
+      try {
+        const r = await fetch(file.download_url);
+        const text = await r.text();
+        const { fm, body } = parseFrontMatter(text);
+        // Extract slug from filename: YYYY-MM-DD-slug.md
+        const nameParts = file.name.replace(/\.md$|\.markdown$/,'').split('-');
+        const slugParts = nameParts.length > 3 ? nameParts.slice(3) : nameParts;
+        const slug = slugParts.join('-');
+        return {
+          slug,
+          filename: file.name,
+          title: fm.title || slugToReadable(slug),
+          date: fm.date || file.name.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || '',
+          category: (fm.category || fm.categories || 'general').toLowerCase().replace(/\s+/g,'-'),
+          description: fm.description || fm.summary || body.replace(/<[^>]+>/g,'').slice(0,160).trim() + '…',
+          thumbnail: fm.thumbnail || fm.image || '',
+          author: fm.author || 'HomeLedger Team',
+          readTime: Math.max(1, Math.round(body.split(/\s+/).length / 200)) + ' min read',
+          body,
+          idx
+        };
+      } catch(e) { return null; }
+    }));
+
+    allPosts = posts.filter(Boolean).sort((a,b) => new Date(b.date) - new Date(a.date));
+    filteredPosts = allPosts;
+    renderBlog();
+  } catch(e) {
+    grid.innerHTML = `<div class="blog-empty"><div style="font-size:2rem">📡</div><p>Couldn't load articles. Check your connection and try again.</p></div>`;
+  }
+}
+
+function renderBlog() {
+  const toShow = filteredPosts.slice(0, visibleCount);
+  const featured = document.getElementById('blogFeatured');
+  const grid = document.getElementById('blogGrid');
+  const loadMore = document.getElementById('blogLoadMore');
+
+  // Featured post (first one)
+  if (toShow.length > 0) {
+    const p = toShow[0];
+    const col = catColor(p.category);
+    featured.innerHTML = `
+      <div class="blog-featured" onclick="openBlogArticle('${p.filename}')">
+        <div class="bf-visual" style="background:${col}20;border-right:1px solid ${col}30">
+          <div class="bf-num">01</div>
+          <div class="bf-tag">${catLabel(p.category)}</div>
+        </div>
+        <div class="bf-text" style="background:var(--p)">
+          <div class="bf-badge">&#11088; Featured</div>
+          <div class="bf-title">${p.title}</div>
+          <div class="bf-desc">${p.description}</div>
+          <span class="bf-read">Read article &rarr;</span>
+        </div>
+      </div>`;
+  } else {
+    featured.innerHTML = '';
+  }
+
+  // Rest of posts as cards
+  const rest = toShow.slice(1);
+  if (!rest.length && !toShow.length) {
+    grid.innerHTML = '<div class="blog-empty"><div style="font-size:2rem">🔍</div><p>No articles in this category yet.</p></div>';
+  } else {
+    grid.innerHTML = rest.map((p, i) => {
+      const col = catColor(p.category);
+      return `<div class="bc" onclick="openBlogArticle('${p.filename}')">
+        <div class="bc-bar" style="background:${col}"></div>
+        <div class="bc-body">
+          <div class="bc-cat" style="color:${col}">${catLabel(p.category)}</div>
+          <div class="bc-title">${p.title}</div>
+          <div class="bc-desc">${p.description.slice(0,120)}…</div>
+          <div class="bc-foot">
+            ${avatarHtml(p.author, col)}
+            <span>${p.author}</span>
+            <span>&middot;</span>
+            <span>${p.readTime}</span>
+            ${p.date ? `<span>&middot;</span><span>${formatDate(p.date)}</span>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  loadMore.style.display = filteredPosts.length > visibleCount ? 'flex' : 'none';
+}
+
+function filterBlog(cat, btn) {
+  currentFilter = cat;
+  visibleCount = POSTS_PER_PAGE;
+  filteredPosts = cat === 'all' ? allPosts : allPosts.filter(p => p.category === cat);
+  document.querySelectorAll('.bf').forEach(b => b.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  renderBlog();
+}
+
+function loadMorePosts() {
+  visibleCount += POSTS_PER_PAGE;
+  renderBlog();
+}
+
+function openBlogArticle(filename) {
+  const post = allPosts.find(p => p.filename === filename);
+  if (!post) return;
+  document.getElementById('blogListView').style.display = 'none';
+  const av = document.getElementById('articleView');
+  av.style.display = 'block';
+  document.getElementById('articleCat').textContent = catLabel(post.category);
+  document.getElementById('articleCat').style.color = catColor(post.category);
+  document.getElementById('articleTitle').textContent = post.title;
+  document.getElementById('articleMeta').innerHTML = `
+    ${avatarHtml(post.author, catColor(post.category))}
+    <span>${post.author}</span>
+    ${post.date ? `<span>&middot;</span><span>${formatDate(post.date)}</span>` : ''}
+    <span>&middot;</span><span>${post.readTime}</span>`;
+  document.getElementById('articleBody').innerHTML = mdToHtml(post.body);
+  go('blog');
+}
+
+function closeBlogArticle() {
+  document.getElementById('articleView').style.display = 'none';
+  document.getElementById('blogListView').style.display = 'block';
+}
+
+// Load blog posts when blog section is first visited
+let blogLoaded = false;
+const _origGo = window.go;
+
+
+// Patch go() to load blog on first visit
+const _origGoFn = window.go;
+window.go = function(id) {
+  _origGoFn && _origGoFn(id);
+  if (id === 'blog' && !blogLoaded) {
+    blogLoaded = true;
+    fetchBlogPosts();
+  }
+};
+
+</script>
+</body>
+</html>
