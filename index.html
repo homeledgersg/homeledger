@@ -1774,7 +1774,8 @@ function closeBlogArticle() {
 }
 
 // Load blog posts when blog section is first visited
-let blogLoaded = false;
+let blogLoaded = true;
+fetchBlogPosts();
 const _origGo = window.go;
 
 
