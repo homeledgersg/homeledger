@@ -1045,7 +1045,6 @@ footer a:hover{color:#fff}
     <div class="article-view" id="articleView">
       <button class="article-back" onclick="closeBlogArticle()">&#8592; Back to Blog</button>
       <div class="article-cat" id="articleCat"></div>
-      <button class="bf" onclick="filterBlog('first-time-buyers',this)">First Time Buyers</button>
       <h1 class="article-title" id="articleTitle"></h1>
       <div class="article-meta" id="articleMeta"></div>
       <div class="article-body" id="articleBody"></div>
@@ -1580,7 +1579,6 @@ const CAT_LABELS = {
 };
 
 let allPosts = [], filteredPosts = [], currentFilter = 'all', visibleCount = POSTS_PER_PAGE;
-  'first-time-buyers': '#7c3aed',
 
 function slugToReadable(slug) {
   return slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -1589,7 +1587,6 @@ function slugToReadable(slug) {
 function parseFrontMatter(text) {
   const fm = {};
   const match = text.match(/^---\s*([\s\S]*?)\s*---/);
-  'first-time-buyers': 'First Time Buyers',
   if (!match) return { fm, body: text };
   const body = text.slice(match[0].length).trim();
   match[1].split('\n').forEach(line => {
