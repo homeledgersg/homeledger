@@ -58,19 +58,13 @@ function pickTarget(el,rate){
 }
 
 function pickChannel(id,el){
-  document.getElementById('chWA').classList.remove('on');
-  document.getElementById('chEmail').classList.remove('on');
-  el.classList.add('on');
-  alertChannel=id;
+  var waBtn=document.getElementById('chWA');
+  if(waBtn)waBtn.classList.add('on');
+  alertChannel='chWA';
   var lbl=document.getElementById('alertContactLabel');
   var inp=document.getElementById('alertContact');
-  if(id==='chWA'){
-    if(lbl)lbl.textContent='WhatsApp number *';
-    if(inp)inp.placeholder='+65 9XXX XXXX';
-  } else {
-    if(lbl)lbl.textContent='Email address *';
-    if(inp)inp.placeholder='you@email.com';
-  }
+  if(lbl)lbl.textContent='WhatsApp number *';
+  if(inp)inp.placeholder='+65 9XXX XXXX';
 }
 
 // Sync custom rate input back to selected target button
@@ -119,7 +113,7 @@ function submitAlert(){
 
   var ltypeLabels={floating:'SORA Floating',fixed2:'2-Year Fixed',fixed3:'3-Year Fixed',any:'Any type'};
   var ltypeLabel=ltypeLabels[ltype]||ltype;
-  var chLabel=alertChannel==='chWA'?'WhatsApp':'Email';
+  var chLabel='Whatsapp';
   var firstName=name.trim().split(' ')[0];
 
   // Disable button and show loading state
@@ -968,9 +962,6 @@ footer a:hover{color:#fff}
         <div class="alert-channel">
           <button class="alert-ch on" id="chWA" onclick="pickChannel('chWA',this)">
             <span class="alert-ch-icon">&#128172;</span> WhatsApp
-          </button>
-          <button class="alert-ch" id="chEmail" onclick="pickChannel('chEmail',this)">
-            <span class="alert-ch-icon">&#128140;</span> Email
           </button>
         </div>
 
